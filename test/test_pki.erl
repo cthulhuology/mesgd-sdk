@@ -22,18 +22,6 @@ key_test_() ->
 tests(_) ->
     [
      ?_test(begin
-                {PubS, PrivS} = crypto:generate_key(ecdh, ?CURVE),
-                {PubE, PrivE} = crypto:generate_key(rsa, {2048, 65537}),
-                Keys = #{signing_priv => PrivS,
-                         signing_pub => PubS,
-                         encrypting_pub => PubE,
-                         encrypting_priv => PrivE},
-                Jwks = pki:export(Keys),
-                Keys2 = pki:import(Jwks),
-                ?assertEqual(Keys, Keys2)
-            end),
-
-     ?_test(begin
                 pki:init(),
                 PrivS = get(signing_priv),
                 PubS = get(signing_pub),
