@@ -124,7 +124,7 @@ If what you said is true or not is not our here nor there, we just want to have 
 How much will that record cost?
 -------------------------------
 
-Nothing in life is free, but free speach has never free.  For running the key service mesgd will seek donations and paid subscriptions.
+Nothing in life is free, but free speach has never been free.  For running the key service mesgd will seek donations and paid subscriptions.
 The current thinking is we will sell keys which will have unlimited usage, and we will sell translation services on a token basis.
 Ideally, the end goal will be to have mesgd broker a p2p connection so you talk to your recipient directly, but if you need a one to many
 broadcast service you will pay for the cost of doing the one to many translation.
