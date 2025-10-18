@@ -109,7 +109,7 @@ Look, you signed the message, you encrypted it for your desired target, you gave
 receive it, and they got the message.  At what point will you take responsibilty for your own actions?  The reason mesgd supports
 key translation services is because you might now know all your consumers, but we know them.  To support the concept of the commons,
 mesgd provides a translation service to make cryptographically signed messages available to the public at large.  You still get
-to decide who that public may be.
+to decide whose that public may be.
 
 Why would you do this?
 ----------------------
