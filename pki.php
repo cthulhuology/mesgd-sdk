@@ -1,4 +1,10 @@
 <?php
+declare(strict_types=1);
+// Requires PHP 8.0+
+// NOTE: PHP's OPENSSL_PKCS1_OAEP_PADDING uses SHA-1 for MGF1, not SHA-256.
+// Native PHP provides no way to override the MGF1 hash.
+// For true SHA-256/SHA-256 OAEP interoperability, use phpseclib 3.0:
+//   $key->withPadding(RSA::ENCRYPTION_OAEP)->withHash('sha256')->withMGFHash('sha256')
 class PKI {
     private static $file = 'pki_keys.bin';
     private static $curve = OPENSSL_CURVE_PRIME256V1;
