@@ -24,9 +24,10 @@ by file; within each file, implementation tasks come before test tasks.
       digest **and** the MGF1 digest; fix Java, PHP (pre-8.0 path), Ruby, Rust
 - [ ] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`)
-- [ ] [COMPAT] Verify that all implementations store JSON keys using snake_case
-      (`signing_pub`, `signing_priv`, `encrypting_pub`, `encrypting_priv`);
-      update `pki.mjs` which currently uses camelCase
+- [ ] [COMPAT] Verify that all implementations store keys as a flat JWK array
+      (not a named dict); keys are identified by `use` (`"sig"` / `"enc"`) and
+      `key_ops` (`["sign"]` / `["verify"]` / `["encrypt"]` / `["decrypt"]`);
+      update `pki.mjs` which currently uses a camelCase dict
 
 ---
 
@@ -63,8 +64,13 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `@classmethod register(cls, mesgd_pub_jwk)`
 
 ### `pki.mjs`
-- [ ] [IMPL] Normalise storage keys to snake_case (`signing_pub`, `signing_priv`,
-      `encrypting_pub`, `encrypting_priv`) on both save and load
+- [ ] [IMPL] Replace camelCase dict storage with a flat JWK array; add `use` field
+      (`"sig"` / `"enc"`) to each exported JWK before saving
+- [ ] [IMPL] Replace named-key load with array scan: find each key by matching
+      `use` + `key_ops` attributes (same discovery logic as the Erlang reference)
+- [ ] [IMPL] Update `sign()` to return `{"r":"<base64url>","s":"<base64url>"}` JSON
+      (WebCrypto ECDSA returns P1363; split at 32 bytes, base64url-encode each half)
+- [ ] [IMPL] Update `verify()` to accept that JSON, reconstruct P1363, then verify
 - [ ] [NEW]  Add `encryptWith(pubJwk, msg)`
 - [ ] [NEW]  Add `register(mesgdPubJwk)`
 
