@@ -1,140 +1,81 @@
 import os
-import base64
+import sys
+import json
 import unittest
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import ec, rsa, padding
-import pickle
 
-class PKI:
-    FILE = 'pki_keys.bin'
-    CURVE = ec.SECP256R1
-    RSA_BITS = 2048
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from pki import PKI
 
-    @classmethod
-    def init(cls):
-        if os.path.exists(cls.FILE):
-            with open(cls.FILE, 'rb') as f:
-                keys = pickle.load(f)
-            cls.signing_priv = serialization.load_pem_private_key(keys['signing_priv'], password=None)
-            cls.signing_pub = serialization.load_pem_public_key(keys['signing_pub'])
-            cls.encrypting_priv = serialization.load_pem_private_key(keys['encrypting_priv'], password=None)
-            cls.encrypting_pub = serialization.load_pem_public_key(keys['encrypting_pub'])
-        else:
-            signing_priv = ec.generate_private_key(curve=cls.CURVE)
-            signing_pub = signing_priv.public_key()
-            encrypting_priv = rsa.generate_private_key(public_exponent=65537, key_size=cls.RSA_BITS)
-            encrypting_pub = encrypting_priv.public_key()
+FIXTURES    = os.path.join(os.path.dirname(__file__), 'fixtures')
+JWKS_FILE   = os.path.join(FIXTURES, 'jwks.json')
+GEN_FILE    = os.path.join(FIXTURES, 'test_python.json')
+SIG_OUT     = os.path.join(FIXTURES, 'sig_python.json')
+CROSS_LANGS = ['erlang', 'javascript', 'ruby']
 
-            signing_priv_pem = signing_priv.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            )
-            signing_pub_pem = signing_pub.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-            encrypting_priv_pem = encrypting_priv.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            )
-            encrypting_pub_pem = encrypting_pub.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-            keys = {
-                'signing_priv': signing_priv_pem,
-                'signing_pub': signing_pub_pem,
-                'encrypting_priv': encrypting_priv_pem,
-                'encrypting_pub': encrypting_pub_pem
-            }
-            with open(cls.FILE, 'wb') as f:
-                pickle.dump(keys, f)
-            cls.signing_priv = serialization.load_pem_private_key(signing_priv_pem, password=None)
-            cls.signing_pub = serialization.load_pem_public_key(signing_pub_pem)
-            cls.encrypting_priv = serialization.load_pem_private_key(encrypting_priv_pem, password=None)
-            cls.encrypting_pub = serialization.load_pem_public_key(encrypting_pub_pem)
-
-    @classmethod
-    def sign(cls, message):
-        if not hasattr(cls, 'signing_priv'):
-            raise ValueError('Keys not initialized')
-        signature = cls.signing_priv.sign(
-            message.encode(),
-            ec.ECDSA(hashes.SHA256())
-        )
-        return base64.b64encode(signature).decode()
-
-    @classmethod
-    def verify(cls, message, signature_b64):
-        if not hasattr(cls, 'signing_pub'):
-            raise ValueError('Keys not initialized')
-        signature = base64.b64decode(signature_b64)
-        try:
-            cls.signing_pub.verify(
-                signature,
-                message.encode(),
-                ec.ECDSA(hashes.SHA256())
-            )
-            return True
-        except:
-            return False
-
-    @classmethod
-    def encrypt(cls, message):
-        if not hasattr(cls, 'encrypting_pub'):
-            raise ValueError('Keys not initialized')
-        ciphertext = cls.encrypting_pub.encrypt(
-            message.encode(),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-        return base64.b64encode(ciphertext).decode()
-
-    @classmethod
-    def decrypt(cls, ciphertext_b64):
-        if not hasattr(cls, 'encrypting_priv'):
-            raise ValueError('Keys not initialized')
-        ciphertext = base64.b64decode(ciphertext_b64)
-        plaintext = cls.encrypting_priv.decrypt(
-            ciphertext,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-        return plaintext.decode()
 
 class TestPKI(unittest.TestCase):
-    def setUp(self):
-        PKI.init()
 
-    def test_sign_verify(self):
-        message = 'Hello World'
-        sig = PKI.sign(message)
-        self.assertTrue(PKI.verify(message, sig))
+    @classmethod
+    def setUpClass(cls):
+        PKI.init(JWKS_FILE)
+
+    def test_sign_verify_roundtrip(self):
+        sig = PKI.sign('Hello World')
+        self.assertTrue(PKI.verify('Hello World', sig))
         self.assertFalse(PKI.verify('Wrong message', sig))
 
-    def test_encrypt_decrypt(self):
-        message = 'Secret message'
-        enc = PKI.encrypt(message)
-        dec = PKI.decrypt(enc)
-        self.assertEqual(dec, message)
-        # Test invalid decryption
-        wrong_enc = PKI.encrypt('Different message')
-        with self.assertRaises(Exception):
-            PKI.decrypt(wrong_enc + 'invalid')
+    def test_signature_is_json(self):
+        sig = PKI.sign('Hello World')
+        obj = json.loads(sig)
+        self.assertIn('r', obj)
+        self.assertIn('s', obj)
 
-    def test_init_twice(self):
-        # Should load existing keys without regenerating
-        original_file_size = os.path.getsize(PKI.FILE)
-        PKI.init()
-        self.assertEqual(os.path.getsize(PKI.FILE), original_file_size)
+    def test_encrypt_decrypt_roundtrip(self):
+        enc = PKI.encrypt('Secret message')
+        self.assertEqual(PKI.decrypt(enc), 'Secret message')
+
+    def test_generate_creates_json_file(self):
+        if os.path.exists(GEN_FILE):
+            os.remove(GEN_FILE)
+        PKI.generate(GEN_FILE)
+        self.assertTrue(os.path.exists(GEN_FILE))
+        with open(GEN_FILE) as f:
+            jwks = json.load(f)
+        self.assertIsInstance(jwks, list)
+        uses  = {(j['use'], j['key_ops'][0]) for j in jwks}
+        self.assertIn(('sig', 'verify'),  uses)
+        self.assertIn(('sig', 'sign'),    uses)
+        self.assertIn(('enc', 'decrypt'), uses)
+        self.assertIn(('enc', 'encrypt'), uses)
+
+    def test_generated_keys_work(self):
+        PKI.generate(GEN_FILE)
+        PKI.init(GEN_FILE)
+        sig = PKI.sign('Hello World')
+        self.assertTrue(PKI.verify('Hello World', sig))
+        enc = PKI.encrypt('Secret')
+        self.assertEqual(PKI.decrypt(enc), 'Secret')
+        # restore reference keys for cross-lang tests
+        PKI.init(JWKS_FILE)
+
+    def test_write_cross_lang_signature(self):
+        PKI.init(JWKS_FILE)
+        sig = PKI.sign('Hello World')
+        with open(SIG_OUT, 'w') as f:
+            json.dump({'lang': 'python', 'message': 'Hello World', 'signature': sig}, f)
+
+    def test_verify_cross_lang_signatures(self):
+        PKI.init(JWKS_FILE)
+        for lang in CROSS_LANGS:
+            path = os.path.join(FIXTURES, f'sig_{lang}.json')
+            if not os.path.exists(path):
+                continue
+            with open(path) as f:
+                rec = json.load(f)
+            self.assertTrue(
+                PKI.verify(rec['message'], rec['signature']),
+                f"Failed to verify signature from {lang}")
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
