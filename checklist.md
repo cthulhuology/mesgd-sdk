@@ -24,84 +24,81 @@ by file; within each file, implementation tasks come before test tasks.
       digest **and** the MGF1 digest; Java, Ruby, Rust fixed; PHP has no native
       solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
       requires phpseclib 3.0 for true interoperability (documented in pki.php)
-- [ ] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
-      qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`)
-- [ ] [COMPAT] Verify that all implementations store keys as a flat JWK array
+- [x] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
+      qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`);
+      done for Erlang, Python, JavaScript, Ruby
+- [x] [COMPAT] Verify that all implementations store keys as a flat JWK array
       (not a named dict); keys are identified by `use` (`"sig"` / `"enc"`) and
       `key_ops` (`["sign"]` / `["verify"]` / `["encrypt"]` / `["decrypt"]`);
-      update `pki.mjs` which currently uses a camelCase dict
+      done for Erlang, Python, JavaScript, Ruby; pki.mjs updated
 
 ---
 
 ## Previously Planned (from original plan.md — included here for unified tracking)
 
 ### `pki.erl`
-- [ ] [IMPL] Add `generate/1` function
-- [ ] [IMPL] Fix typo in generate: `PrivS` → `PrivE` in returned tuple
-- [ ] [IMPL] Update `-export` list to include `generate/1`
-- [ ] [IMPL] Refactor `init/0` to call `generate(?KEY_FILE)` instead of inlining key-gen
+- [x] [IMPL] Add `generate/1` function
+- [x] [IMPL] Fix typo in generate: `PrivS` → `PrivE` in returned tuple
+- [x] [IMPL] Update `-export` list to include `generate/1`
+- [x] [IMPL] Refactor `init/1` to call `generate(KeyFile)` instead of inlining key-gen
 - [ ] [IMPL] Add MIT No Attribution license header
 
-### `pki.go`
+### `pki.go` ← **next batch**
 - [ ] [IMPL] Remove `encoding/pem` usage; replace with JWK JSON serialisation
 - [ ] [IMPL] Change storage file from `pki_keys.gob` to `pki_keys.json`
-- [ ] [IMPL] Add `Export() map[string]interface{}`
-- [ ] [IMPL] Add `Import(map[string]interface{}) error`
+- [ ] [IMPL] Add `Export() []map[string]interface{}`
+- [ ] [IMPL] Add `ImportJWKS([]map[string]interface{}) error`
 - [ ] [IMPL] Expand `PKI` struct to hold `signingPub` and `encryptingPub`
-- [ ] [IMPL] Add `Generate(path string)` function
-- [ ] [IMPL] Remove `main()`
-- [ ] [IMPL] Change `package main` to `package pki`
+- [ ] [IMPL] Add `Generate(path string) error` function
+- [ ] [IMPL] Remove `main()`; change `package main` to `package pki`
+- [ ] [IMPL] Fix `Sign` to output `{"r":"b64url","s":"b64url"}` JSON
+- [ ] [IMPL] Fix `Verify` to accept that JSON
 - [ ] [NEW]  Add `EncryptWith(pubJwk map[string]interface{}, msg string) (string, error)`
 - [ ] [NEW]  Add `Register(mesgdPubJwk map[string]interface{}) (string, error)`
 
 ### `pki.py`
-- [ ] [IMPL] Replace `pickle` with `json` for storage
-- [ ] [IMPL] Replace PEM serialisation with JWK serialisation (all four keys)
-- [ ] [IMPL] Add `@classmethod export(cls)` returning JWK dict
-- [ ] [IMPL] Add `@classmethod import_keys(cls, jwk_dict)`
-- [ ] [IMPL] Add `@classmethod generate(cls, path)`
-- [ ] [IMPL] Fix `CURVE = ec.SECP256R1` → `CURVE = ec.SECP256R1()`
-- [ ] [IMPL] Rename storage file to `pki_keys.json`
+- [x] [IMPL] Replace `pickle` with `json` for storage
+- [x] [IMPL] Replace PEM serialisation with JWK serialisation (all four keys)
+- [x] [IMPL] Add `@classmethod export(cls)` returning JWK array
+- [x] [IMPL] Add `@classmethod import_jwks(cls, jwks)`
+- [x] [IMPL] Add `@classmethod generate(cls, path)`
+- [x] [IMPL] Fix `CURVE = ec.SECP256R1` → `CURVE = ec.SECP256R1()`
+- [x] [IMPL] Rename storage file to `pki_keys.json`
 - [ ] [NEW]  Add `@classmethod encrypt_with(cls, pub_jwk, msg)`
 - [ ] [NEW]  Add `@classmethod register(cls, mesgd_pub_jwk)`
 
 ### `pki.mjs`
-- [ ] [IMPL] Replace camelCase dict storage with a flat JWK array; add `use` field
+- [x] [IMPL] Replace camelCase dict storage with a flat JWK array; add `use` field
       (`"sig"` / `"enc"`) to each exported JWK before saving
-- [ ] [IMPL] Replace named-key load with array scan: find each key by matching
+- [x] [IMPL] Replace named-key load with array scan: find each key by matching
       `use` + `key_ops` attributes (same discovery logic as the Erlang reference)
-- [ ] [IMPL] Update `sign()` to return `{"r":"<base64url>","s":"<base64url>"}` JSON
+- [x] [IMPL] Update `sign()` to return `{"r":"<base64url>","s":"<base64url>"}` JSON
       (WebCrypto ECDSA returns P1363; split at 32 bytes, base64url-encode each half)
-- [ ] [IMPL] Update `verify()` to accept that JSON, reconstruct P1363, then verify
+- [x] [IMPL] Update `verify()` to accept that JSON, reconstruct P1363, then verify
 - [ ] [NEW]  Add `encryptWith(pubJwk, msg)`
 - [ ] [NEW]  Add `register(mesgdPubJwk)`
 
 ### `test/test_pki.erl`
-- [ ] [IMPL] Change `?KEY_FILE` to `"test/storage/pki_keys.bin"` to match module under test
-- [ ] [TEST] Add test for `generate/1` – verify tuple is `{PubS, PrivS, PubE, PrivE}`
-- [ ] [TEST] Add test for `export/1` – verify map contains four JWK keys with correct `kty`
-- [ ] [TEST] Add test for `import/1` – round-trip export → import reproduces original keys
+- [x] [IMPL] Change `?KEY_FILE` to `"test/fixtures/jwks.json"` (shared fixture)
+- [x] [TEST] Add test for `generate/1` – file created, array of 4 JWKs with correct ops
+- [x] [TEST] Add test for `export/4` – round-trip generate → import → sign → verify
+- [x] [TEST] Cross-language signature write and verify tests
 
 ### `test/test_pki.py`
-- [ ] [IMPL] Remove duplicated inline `PKI` class; add `from pki import PKI`
-- [ ] [IMPL] Add `setUp` / `tearDown` that deletes and recreates the key file
-- [ ] [TEST] Add test for `export()` – dict contains four keys with correct `kty`
-- [ ] [TEST] Add test for `import_keys()` – round-trip export → import → sign → verify
-- [ ] [TEST] Add test for `generate()` – file created at path; valid JSON with four keys
-- [ ] [TEST] Replace fragile file-size test with structural JSON check
+- [x] [IMPL] Remove duplicated inline `PKI` class; add `from pki import PKI`
+- [x] [TEST] Round-trip sign/verify, encrypt/decrypt
+- [x] [TEST] test_generate_creates_json_file – structural JSON check, array of 4
+- [x] [TEST] test_generated_keys_work – import round-trip → sign → verify
+- [x] [TEST] Cross-language signature write and verify
 
-### `test/pki_test.go`
-- [ ] [IMPL] Fix re-init test: verify old signature with reloaded key instead of
-      comparing signature bytes
-- [ ] [IMPL] Update `package main` to match `pki.go` package name
-- [ ] [IMPL] Add `TestMain` or setup/teardown removing `pki_keys.json`
-- [ ] [TEST] Add test for `Export()` and `Import()` round-trips
-- [ ] [TEST] Add test for `EncryptWith()`
-- [ ] [TEST] Add test for `Register()`
+### `test/pki_test.go` ← **next batch**
+- [ ] [IMPL] Rewrite to use shared fixture jwks.json; add cross-lang tests
+- [ ] [IMPL] Update to `package pki_test`; import `mesgd-sdk`
+- [ ] [TEST] Standard 8-test suite matching other languages
 
 ---
 
-## `pki.c` / `test/test_pki.c`
+## `pki.c` / `test/test_pki.c` ← **next batch**
 
 ### Implementation
 - [ ] [IMPL] Add `base64url_encode(buf, len) -> char*` helper (replaces `+/` with `-_`, strips `=`)
@@ -342,7 +339,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.php` / `test/PKITest.php`
+## `pki.php` / `test/test_pki.php` ← **next batch**
 
 ### Implementation
 - [ ] [IMPL] Add `declare(strict_types=1)` and `<?php` header; set minimum PHP to 8.0
@@ -412,71 +409,45 @@ by file; within each file, implementation tasks come before test tasks.
 ## `pki.rb` / `test/test_pki.rb`
 
 ### Implementation
-- [ ] [IMPL] Replace `Marshal.dump` / `Marshal.load` with `JSON.dump` / `JSON.parse`
+- [x] [IMPL] Replace `Marshal.dump` / `Marshal.load` with `JSON.dump` / `JSON.parse`
       writing `pki_keys.json` using canonical JWK structure
-- [ ] [IMPL] Implement JWK serialisation for EC keys (extract x/y from `public_key.to_bn`,
-      d from `private_key`) and RSA keys (`priv.params` hash)
-- [ ] [IMPL] Fix double-encrypt bug in `self.encrypt` (remove the first redundant call)
-- [ ] [COMPAT] Replace deprecated `public_encrypt(msg, PKCS1_OAEP_PADDING)` with
-      `OpenSSL::PKey::RSA#encrypt(msg)` using explicit OAEP SHA-256 options (openssl gem 3.0+)
-- [ ] [COMPAT] Ensure MGF1 hash is SHA-256 (not SHA-1) for interoperability
-- [ ] [IMPL] Replace `OpenSSL::PKey::EC.new(CURVE).generate_key` with
-      `OpenSSL::PKey::EC.generate(CURVE)` (Ruby 3.x)
-- [ ] [IMPL] Add `PKI.generate(path)` – generates keys, saves JWK JSON
-- [ ] [IMPL] Add `PKI.export` – returns Hash matching JWK structure
-- [ ] [IMPL] Add `PKI.import(jwk_hash)` – loads keys from JWK hash
+- [x] [IMPL] Implement JWK serialisation for EC/RSA keys via OpenSSL::ASN1 DER helpers
+- [x] [IMPL] Fix double-encrypt bug in `self.encrypt`
+- [x] [COMPAT] Use `OpenSSL::PKey::RSA#encrypt(msg)` with explicit OAEP SHA-256 opts
+- [x] [COMPAT] MGF1 hash is SHA-256 via `rsa_mgf1_md` OAEP option
+- [x] [IMPL] Use `OpenSSL::PKey::EC.generate(CURVE)` (Ruby 3.x)
+- [x] [IMPL] Add `PKI.generate(path)` – generates keys, saves JWK JSON
+- [x] [IMPL] Add `PKI._export_jwk_array` / `_load_jwk_array`
 - [ ] [NEW]  Add `PKI.encrypt_with(pub_jwk_hash, message)`
 - [ ] [NEW]  Add `PKI.register(mesgd_pub_jwk_hash)`
 
-### Tests (`test/test_pki.rb`) — update existing file
-- [ ] [IMPL] Remove inline PKI module duplication at top of existing test file;
-      add `require_relative '../pki'`
-- [ ] [IMPL] Add `teardown` that deletes `pki_keys.json` after each test
-- [ ] [IMPL] Add `setup` that calls `PKI.init` fresh
-- [ ] [TEST] Existing `test_sign_verify` – keep; ensure it imports real module
-- [ ] [TEST] Existing `test_encrypt_decrypt` – keep; update if API changes
-- [ ] [TEST] Replace `test_init_twice` file-size check with JSON structural check
-- [ ] [TEST] Add `test_export` – Hash contains four keys with correct `kty`
-- [ ] [TEST] Add `test_import_roundtrip` – export → import → sign → verify
-- [ ] [TEST] Add `test_generate` – file created; valid JSON with four keys
-- [ ] [TEST] Add `test_encrypt_with` – foreign pub JWK; owner decrypts
-- [ ] [TEST] Add `test_register` – non-empty base64 string
+### Tests (`test/test_pki.rb`)
+- [x] [IMPL] `require_relative '../pki'`; `setup` calls `PKI.init(JWKS_FILE)`
+- [x] [TEST] sign/verify roundtrip, encrypt/decrypt roundtrip
+- [x] [TEST] generate creates JSON file (structural check)
+- [x] [TEST] generated keys work (import round-trip)
+- [x] [TEST] write cross-lang signature; verify cross-lang signatures
+- [ ] [TEST] Add `test_encrypt_with`
+- [ ] [TEST] Add `test_register`
 
 ---
 
-## `pki.rs` / `test/pki_test.rs` (or `#[cfg(test)]` inline)
+## `pki.rs` / `tests/test_pki.rs` ← **next batch**
 
 ### Implementation
-- [ ] [IMPL] Convert to library crate: rename to `src/lib.rs`; move demo to `src/main.rs`
-- [ ] [IMPL] Add `base64url_encode` / `base64url_decode` helpers using `base64` crate
-      `URL_SAFE_NO_PAD` engine
-- [ ] [IMPL] Update all `base64::encode` / `base64::decode` calls to new
-      `base64::engine::general_purpose` API
-- [ ] [COMPAT] Fix OAEP SHA-256: replace `Rsa::public_encrypt(..., Padding::OAEP, ...)`
-      with `openssl::pkey_ctx::PkeyCtx` + `set_rsa_oaep_md(sha256)` + `set_rsa_mgf1_md(sha256)`
-- [ ] [IMPL] Replace PEM-string JSON with JWK serialisation: extract EC point coordinates
-      and RSA `BigNum` components; encode as base64url; use `serde_json::Value`
-- [ ] [IMPL] Change storage file name from current to `pki_keys.json` and update `Keys` struct
-      to hold JWK fields directly (or serialise on write / deserialise on read)
-- [ ] [IMPL] Add `pub fn generate(path: &str) -> Result<PKI, Box<dyn Error>>`
-- [ ] [IMPL] Add `pub fn export(&self) -> Result<serde_json::Value, Box<dyn Error>>`
-- [ ] [IMPL] Add `pub fn import_jwk(jwk: &serde_json::Value) -> Result<Self, Box<dyn Error>>`
-- [ ] [NEW]  Add `pub fn encrypt_with(pub_jwk: &serde_json::Value, msg: &str) -> Result<String, Box<dyn Error>>`
-- [ ] [NEW]  Add `pub fn register(mesgd_pub_jwk: &serde_json::Value) -> Result<String, Box<dyn Error>>`
+- [x] [COMPAT] Fix OAEP SHA-256: uses `PkeyCtx` + `set_rsa_oaep_md(sha256)` + `set_rsa_mgf1_md(sha256)`
+- [ ] [IMPL] Add Cargo.toml; set `[lib] path = "pki.rs"`
+- [ ] [IMPL] Add `base64url_encode` / `base64url_decode` helpers (URL_SAFE_NO_PAD engine)
+- [ ] [IMPL] Replace PEM-string JSON with JWK flat-array serialisation
+- [ ] [IMPL] Fix `Sign` to output `{"r":"b64url","s":"b64url"}` JSON (parse DER via EcdsaSig)
+- [ ] [IMPL] Fix `Verify` to accept that JSON
+- [ ] [IMPL] Add `pub fn generate(path: &str) -> Result<Self, Box<dyn Error>>`
+- [ ] [IMPL] Add `pub fn import_jwks(jwks: &[Value]) -> Result<Self, Box<dyn Error>>`
+- [ ] [NEW]  Add `pub fn encrypt_with` / `pub fn register`
 
-### Tests (inline `#[cfg(test)]` in `src/lib.rs` or `tests/pki_test.rs`)
-- [ ] [NEW]  Add test module / integration test file
-- [ ] [TEST] `test_init` – `PKI::init()` returns `Ok(pki)` with all fields populated
-- [ ] [TEST] `test_sign_verify` – sign/verify round-trip returns `Ok(true)`
-- [ ] [TEST] `test_verify_wrong_message` – returns `Ok(false)`
-- [ ] [TEST] `test_encrypt_decrypt` – plaintext recovered
-- [ ] [TEST] `test_reinit_same_keys` – sign before reinit; verify after reinit
-- [ ] [TEST] `test_export_jwk_structure` – Value has four top-level keys; kty correct
-- [ ] [TEST] `test_import_roundtrip` – export → import → sign → verify
-- [ ] [TEST] `test_generate_creates_file` – file exists; valid JSON
-- [ ] [TEST] `test_encrypt_with_foreign_key` – owner decrypts
-- [ ] [TEST] `test_register_returns_ciphertext` – non-empty base64 string
-- [ ] [TEST] Use `#[test]` setup/teardown or `tempdir` crate to isolate key files
+### Tests (`tests/test_pki.rs`)
+- [ ] [NEW]  Integration test file; 8-test suite matching other languages
+- [ ] [TEST] Cross-language signature write and verify
 
 ---
 
