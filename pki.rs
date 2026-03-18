@@ -5,6 +5,7 @@ use openssl::rsa::{Rsa, Padding};
 use openssl::sign::{Signer, Verifier};
 use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
+use openssl::pkey_ctx::PkeyCtx;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -87,15 +88,30 @@ impl PKI {
     }
 
     pub fn encrypt(&self, message: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let rsa_pub = self.encrypting_pub.rsa()?;
-        let ciphertext = rsa_pub.public_encrypt(message.as_bytes(), Padding::OAEP, MessageDigest::sha256())?;
-        Ok(encode(ciphertext))
+        let mut ctx = PkeyCtx::new(&self.encrypting_pub)?;
+        ctx.encrypt_init()?;
+        ctx.set_rsa_padding(Padding::OAEP)?;
+        ctx.set_rsa_oaep_md(MessageDigest::sha256())?;
+        ctx.set_rsa_mgf1_md(MessageDigest::sha256())?;
+        let data = message.as_bytes();
+        let len = ctx.encrypt(data, None)?;
+        let mut ciphertext = vec![0u8; len];
+        let written = ctx.encrypt(data, Some(&mut ciphertext))?;
+        ciphertext.truncate(written);
+        Ok(encode(&ciphertext))
     }
 
     pub fn decrypt(&self, ciphertext_b64: &str) -> Result<String, Box<dyn std::error::Error>> {
         let ciphertext = decode(ciphertext_b64)?;
-        let rsa_priv = self.encrypting_priv.rsa()?;
-        let plaintext = rsa_priv.private_decrypt(&ciphertext, Padding::OAEP, MessageDigest::sha256())?;
+        let mut ctx = PkeyCtx::new(&self.encrypting_priv)?;
+        ctx.decrypt_init()?;
+        ctx.set_rsa_padding(Padding::OAEP)?;
+        ctx.set_rsa_oaep_md(MessageDigest::sha256())?;
+        ctx.set_rsa_mgf1_md(MessageDigest::sha256())?;
+        let len = ctx.decrypt(&ciphertext, None)?;
+        let mut plaintext = vec![0u8; len];
+        let written = ctx.decrypt(&ciphertext, Some(&mut plaintext))?;
+        plaintext.truncate(written);
         Ok(String::from_utf8(plaintext)?)
     }
 }
