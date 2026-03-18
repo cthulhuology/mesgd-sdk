@@ -5,7 +5,8 @@ require 'fileutils'
 module PKI
   FILE = 'pki_keys.bin'.freeze
   CURVE = 'prime256v1'.freeze
-  RSA_OPTS = OpenSSL::RSA::PKCS1_OAEP_PADDING
+  # SHA-256 for both OAEP digest and MGF1 — requires openssl gem 3.0+ (Ruby 3.1+)
+  OAEP_OPTS = { 'rsa_padding_mode' => 'oaep', 'rsa_oaep_md' => 'sha256', 'rsa_mgf1_md' => 'sha256' }.freeze
   RSA_BITS = 2048
 
   def self.init
@@ -49,13 +50,12 @@ module PKI
 
   def self.encrypt(message)
     raise 'Keys not initialized' unless @encrypting_pub
-    @encrypting_pub.public_encrypt(message, RSA_OPTS)
-    Base64.strict_encode64(@encrypting_pub.public_encrypt(message, RSA_OPTS))
+    Base64.strict_encode64(@encrypting_pub.encrypt(message, OAEP_OPTS))
   end
 
   def self.decrypt(ciphertext_b64)
     raise 'Keys not initialized' unless @encrypting_priv
     ciphertext = Base64.strict_decode64(ciphertext_b64)
-    @encrypting_priv.private_decrypt(ciphertext, RSA_OPTS)
+    @encrypting_priv.decrypt(ciphertext, OAEP_OPTS)
   end
 end
