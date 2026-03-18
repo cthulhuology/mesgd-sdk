@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 public static class PKI
 {
@@ -81,20 +82,43 @@ public static class PKI
         }
     }
 
+    private static string Base64UrlEncode(byte[] data)
+    {
+        return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static byte[] Base64UrlDecode(string s)
+    {
+        string padded = s.Replace('-', '+').Replace('_', '/');
+        padded += (padded.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
+        return Convert.FromBase64String(padded);
+    }
+
+    // Sign returns a JSON object {"r":"<base64url>","s":"<base64url>"} mirroring JWK key encoding
     public static string Sign(string message)
     {
         ArgumentNullException.ThrowIfNull(signingPriv);
         byte[] data = Encoding.UTF8.GetBytes(message);
-        byte[] signature = signingPriv.SignData(data, HashAlgorithmName.SHA256);
-        return Convert.ToBase64String(signature);
+        // SignData returns IEEE P1363: R (32 bytes) || S (32 bytes) for P-256
+        byte[] p1363 = signingPriv.SignData(data, HashAlgorithmName.SHA256);
+        string r = Base64UrlEncode(p1363[..32]);
+        string s = Base64UrlEncode(p1363[32..]);
+        return $"{{\"r\":\"{r}\",\"s\":\"{s}\"}}";
     }
 
-    public static bool Verify(string message, string signatureB64)
+    // Verify accepts {"r":"<base64url>","s":"<base64url>"}
+    public static bool Verify(string message, string signatureJson)
     {
         ArgumentNullException.ThrowIfNull(signingPub);
         byte[] data = Encoding.UTF8.GetBytes(message);
-        byte[] signature = Convert.FromBase64String(signatureB64);
-        return signingPub.VerifyData(data, signature, HashAlgorithmName.SHA256);
+        using var doc = JsonDocument.Parse(signatureJson);
+        byte[] r = Base64UrlDecode(doc.RootElement.GetProperty("r").GetString()!);
+        byte[] s = Base64UrlDecode(doc.RootElement.GetProperty("s").GetString()!);
+        // Reconstruct P1363: each component right-aligned in 32 bytes
+        byte[] p1363 = new byte[64];
+        Buffer.BlockCopy(r, 0, p1363, 32 - r.Length, r.Length);
+        Buffer.BlockCopy(s, 0, p1363, 64 - s.Length, s.Length);
+        return signingPub.VerifyData(data, p1363, HashAlgorithmName.SHA256);
     }
 
     public static string Encrypt(string message)
