@@ -20,8 +20,10 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] [COMPAT] Canonicalise ECDSA signature wire format to JWK-style JSON
       (`{"r":"<base64url>","s":"<base64url>"}`) across all implementations;
       C# done — remaining implementations still output DER or raw P1363
-- [ ] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
-      digest **and** the MGF1 digest; fix Java, PHP (pre-8.0 path), Ruby, Rust
+- [x] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
+      digest **and** the MGF1 digest; Java, Ruby, Rust fixed; PHP has no native
+      solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
+      requires phpseclib 3.0 for true interoperability (documented in pki.php)
 - [ ] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`)
 - [ ] [COMPAT] Verify that all implementations store keys as a flat JWK array
