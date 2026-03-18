@@ -1,133 +1,115 @@
-// Helper functions for base64 encoding/decoding Uint8Array
-function uint8ToBase64(uint8) {
-  let binary = '';
-  for (let i = 0; i < uint8.byteLength; i++) {
-    binary += String.fromCharCode(uint8[i]);
-  }
-  return btoa(binary);
+import { readFileSync, writeFileSync } from 'fs';
+
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function base64ToUint8(base64) {
-  const binary = atob(base64);
-  const uint8 = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    uint8[i] = binary.charCodeAt(i);
-  }
-  return uint8;
+function b64urlDecode(s) {
+  const pad = s.length % 4 ? '='.repeat(4 - s.length % 4) : '';
+  return Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 }
 
 const PKI = {
-  signingGenAlg: { name: 'ECDSA', namedCurve: 'P-256' },
-  signingAlg: { name: 'ECDSA', namedCurve: 'P-256' },
-  signingSignParams: { name: 'ECDSA', hash: { name: 'SHA-256' } },
-  signingUsagesPrivate: ['sign'],
-  signingUsagesPublic: ['verify'],
+  signingAlg:   { name: 'ECDSA', namedCurve: 'P-256' },
+  signingParams:{ name: 'ECDSA', hash: { name: 'SHA-256' } },
   rsaGenAlg: {
-    name: 'RSA-OAEP',
-    modulusLength: 2048,
+    name: 'RSA-OAEP', modulusLength: 2048,
     publicExponent: new Uint8Array([1, 0, 1]),
     hash: { name: 'SHA-256' }
   },
   rsaAlg: { name: 'RSA-OAEP', hash: 'SHA-256' },
-  rsaUsagesPrivate: ['decrypt'],
-  rsaUsagesPublic: ['encrypt'],
-  storageKey: 'pki_keys',
-  keys: null,
-  signingPrivateKey: null,
-  signingPublicKey: null,
+
+  signingPrivateKey:    null,
+  signingPublicKey:     null,
   encryptingPrivateKey: null,
-  encryptingPublicKey: null,
+  encryptingPublicKey:  null,
 
-  async init() {
-    let stored = localStorage.getItem(this.storageKey);
-    if (!stored) {
-      const signingPair = await crypto.subtle.generateKey(
-        this.signingGenAlg,
-        true,
-        [...this.signingUsagesPrivate, ...this.signingUsagesPublic]
-      );
-      const encryptingPair = await crypto.subtle.generateKey(
-        this.rsaGenAlg,
-        true,
-        [...this.rsaUsagesPrivate, ...this.rsaUsagesPublic]
-      );
-
-      const signingPrivateJWK = await crypto.subtle.exportKey('jwk', signingPair.privateKey);
-      const signingPublicJWK = await crypto.subtle.exportKey('jwk', signingPair.publicKey);
-      const encryptingPrivateJWK = await crypto.subtle.exportKey('jwk', encryptingPair.privateKey);
-      const encryptingPublicJWK = await crypto.subtle.exportKey('jwk', encryptingPair.publicKey);
-
-      stored = JSON.stringify({
-        signingPrivate: signingPrivateJWK,
-        signingPublic: signingPublicJWK,
-        encryptingPrivate: encryptingPrivateJWK,
-        encryptingPublic: encryptingPublicJWK
-      });
-      localStorage.setItem(this.storageKey, stored);
-    }
-
-    this.keys = JSON.parse(stored);
-
-    this.signingPrivateKey = await crypto.subtle.importKey(
-      'jwk',
-      this.keys.signingPrivate,
-      this.signingAlg,
-      true,
-      this.signingUsagesPrivate
-    );
-    this.signingPublicKey = await crypto.subtle.importKey(
-      'jwk',
-      this.keys.signingPublic,
-      this.signingAlg,
-      true,
-      this.signingUsagesPublic
-    );
-    this.encryptingPrivateKey = await crypto.subtle.importKey(
-      'jwk',
-      this.keys.encryptingPrivate,
-      this.rsaAlg,
-      true,
-      this.rsaUsagesPrivate
-    );
-    this.encryptingPublicKey = await crypto.subtle.importKey(
-      'jwk',
-      this.keys.encryptingPublic,
-      this.rsaAlg,
-      true,
-      this.rsaUsagesPublic
-    );
+  // Load keys from a flat JWK array, identifying each by use + key_ops.
+  // Strip key_ops and use before passing to importKey: the reference format
+  // labels RSA keys with swapped key_ops (public='decrypt', private='encrypt')
+  // which would conflict with WebCrypto's validation.
+  async importJWKS(jwks) {
+    const find = (use, op) =>
+      jwks.find(j => j.use === use && Array.isArray(j.key_ops) && j.key_ops.includes(op));
+    const strip = j => { const c = {...j}; delete c.key_ops; delete c.use; return c; };
+    const pubSig  = find('sig', 'verify');
+    const privSig = find('sig', 'sign');
+    const pubEnc  = find('enc', 'decrypt');
+    const privEnc = find('enc', 'encrypt');
+    this.signingPrivateKey    = await crypto.subtle.importKey('jwk', strip(privSig), this.signingAlg, true, ['sign']);
+    this.signingPublicKey     = await crypto.subtle.importKey('jwk', strip(pubSig),  this.signingAlg, true, ['verify']);
+    this.encryptingPrivateKey = await crypto.subtle.importKey('jwk', strip(privEnc), this.rsaAlg,     true, ['decrypt']);
+    this.encryptingPublicKey  = await crypto.subtle.importKey('jwk', strip(pubEnc),  this.rsaAlg,     true, ['encrypt']);
   },
 
+  async init(path) {
+    if (path) {
+      const jwks = JSON.parse(readFileSync(path, 'utf8'));
+      await this.importJWKS(jwks);
+    } else {
+      await this.generate();
+    }
+  },
+
+  async generate(path) {
+    const sigPair = await crypto.subtle.generateKey(this.signingAlg, true,
+      ['sign', 'verify']);
+    const encPair = await crypto.subtle.generateKey(this.rsaGenAlg,  true,
+      ['encrypt', 'decrypt']);
+
+    const pubSig  = await crypto.subtle.exportKey('jwk', sigPair.publicKey);
+    const privSig = await crypto.subtle.exportKey('jwk', sigPair.privateKey);
+    const pubEnc  = await crypto.subtle.exportKey('jwk', encPair.publicKey);
+    const privEnc = await crypto.subtle.exportKey('jwk', encPair.privateKey);
+
+    // Annotate with use + key_ops for array-format storage
+    pubSig.use  = 'sig'; pubSig.key_ops  = ['verify'];
+    privSig.use = 'sig'; privSig.key_ops = ['sign'];
+    pubEnc.use  = 'enc'; pubEnc.key_ops  = ['decrypt'];
+    privEnc.use = 'enc'; privEnc.key_ops = ['encrypt'];
+
+    const jwks = [pubSig, pubEnc, privSig, privEnc];
+    if (path) writeFileSync(path, JSON.stringify(jwks));
+
+    this.signingPrivateKey    = sigPair.privateKey;
+    this.signingPublicKey     = sigPair.publicKey;
+    this.encryptingPrivateKey = encPair.privateKey;
+    this.encryptingPublicKey  = encPair.publicKey;
+
+    return jwks;
+  },
+
+  // Returns JSON {"r":"<base64url>","s":"<base64url>"}
+  // WebCrypto ECDSA returns P1363 (raw R||S); split at 32 bytes and base64url-encode each
   async sign(message) {
     const data = new TextEncoder().encode(message);
-    const signature = await crypto.subtle.sign(this.signingSignParams, this.signingPrivateKey, data);
-    return uint8ToBase64(new Uint8Array(signature));
+    const p1363 = new Uint8Array(await crypto.subtle.sign(this.signingParams, this.signingPrivateKey, data));
+    return JSON.stringify({ r: b64url(p1363.slice(0, 32)), s: b64url(p1363.slice(32)) });
   },
 
-  async verify(message, signatureBase64) {
+  // Accepts {"r":"<base64url>","s":"<base64url>"}; reconstructs P1363 for WebCrypto
+  async verify(message, signatureJson) {
+    const { r, s } = JSON.parse(signatureJson);
+    const p1363 = new Uint8Array(64);
+    const rb = b64urlDecode(r), sb = b64urlDecode(s);
+    p1363.set(rb, 32 - rb.length);
+    p1363.set(sb, 64 - sb.length);
     const data = new TextEncoder().encode(message);
-    const signature = base64ToUint8(signatureBase64);
-    return await crypto.subtle.verify(this.signingSignParams, this.signingPublicKey, signature, data);
+    return crypto.subtle.verify(this.signingParams, this.signingPublicKey, p1363, data);
   },
 
   async encrypt(message) {
     const data = new TextEncoder().encode(message);
-    const ciphertext = await crypto.subtle.encrypt(this.rsaAlg, this.encryptingPublicKey, data);
-    return uint8ToBase64(new Uint8Array(ciphertext));
+    const ct = await crypto.subtle.encrypt(this.rsaAlg, this.encryptingPublicKey, data);
+    return btoa(String.fromCharCode(...new Uint8Array(ct)));
   },
 
   async decrypt(ciphertextBase64) {
-    const ciphertext = base64ToUint8(ciphertextBase64);
-    const plaintext = await crypto.subtle.decrypt(this.rsaAlg, this.encryptingPrivateKey, ciphertext);
-    return new TextDecoder().decode(plaintext);
+    const ct = Uint8Array.from(atob(ciphertextBase64), c => c.charCodeAt(0));
+    const pt = await crypto.subtle.decrypt(this.rsaAlg, this.encryptingPrivateKey, ct);
+    return new TextDecoder().decode(pt);
   }
 };
 
 export { PKI };
-
-// Usage example:
-// await PKI.init();
-// const sig = await PKI.sign('Hello World');
-// console.log(await PKI.verify('Hello World', sig)); // true
-// const enc = await PKI.encrypt('Secret message');
-// console.log(await PKI.decrypt(enc)); // 'Secret message'
