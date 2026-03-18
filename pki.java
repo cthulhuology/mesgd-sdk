@@ -7,10 +7,9 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import javax.crypto.Cipher;
-import javax.crypto.EncryptedPrivateKeyInfo;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
-import javax.crypto.spec.PBEParameterSpec;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
+import java.security.spec.MGF1ParameterSpec;
 
 public class PKI {
     private static final String FILE = "pki_keys.bin";
@@ -73,18 +72,22 @@ public class PKI {
         return sig.verify(signature);
     }
 
+    private static OAEPParameterSpec oaepSpec() {
+        return new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT);
+    }
+
     public static String encrypt(String message) throws Exception {
         if (encryptingPub == null) init();
-        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, encryptingPub);
+        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, encryptingPub, oaepSpec());
         byte[] ciphertext = cipher.doFinal(message.getBytes("UTF-8"));
         return Base64.getEncoder().encodeToString(ciphertext);
     }
 
     public static String decrypt(String ciphertextB64) throws Exception {
         if (encryptingPriv == null) init();
-        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-        cipher.init(Cipher.DECRYPT_MODE, encryptingPriv);
+        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPPadding");
+        cipher.init(Cipher.DECRYPT_MODE, encryptingPriv, oaepSpec());
         byte[] ciphertext = Base64.getDecoder().decode(ciphertextB64);
         byte[] plaintext = cipher.doFinal(ciphertext);
         return new String(plaintext, "UTF-8");
