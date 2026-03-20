@@ -25,6 +25,22 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] `deps-python` (pip + requirements.txt), `deps-javascript` (bun install + bun.lock), `deps-rust` (cargo fetch)
 - [x] Cross-language interop verified: all 6 working languages sign and verify each other's fixtures
 
+## Algorithm Constraints
+
+All implementations must conform to algorithms that are natively available in the
+browser **`crypto.subtle`** WebCrypto API, as that is the lowest common denominator
+across the full language matrix:
+
+| Operation | Algorithm | Parameters |
+|-----------|-----------|------------|
+| Sign / Verify | ECDSA | Curve P-256, digest SHA-256 |
+| Encrypt / Decrypt | RSA-OAEP | 2048-bit key, hash SHA-256, MGF1 hash SHA-256 |
+| Key format | JWK flat array | `use` + `key_ops` for key identification |
+| Signature wire format | JSON `{"r":"<b64url>","s":"<b64url>"}` | 32-byte big-endian r and s |
+
+WebCrypto RSA-OAEP uses SHA-256 for **both** the OAEP label hash and the MGF1 hash.
+Every implementation must match this exactly to achieve cross-language interoperability.
+
 ## Cross-Language Interoperability (resolve before or alongside per-file work)
 
 - [x] [COMPAT] Canonicalise ECDSA signature wire format to JWK-style JSON
@@ -32,8 +48,8 @@ by file; within each file, implementation tasks come before test tasks.
       done for Erlang, Python, JavaScript, Ruby, Rust, Go; C# and others pending
 - [x] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
       digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust, Go;
-      PHP has no native solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
-      requires phpseclib 3.0 for true interoperability (documented in pki.php)
+      PHP will use phpseclib 3.0 (native `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to
+      SHA-1 MGF1 and cannot interoperate)
 - [x] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`);
       done for Erlang, Python, JavaScript, Ruby, Rust, Go
@@ -107,68 +123,85 @@ by file; within each file, implementation tasks come before test tasks.
 
 ## `pki.c` / `c/test_pki.c` ← **next**
 
+### Dependencies
+- **libwebsockets** (libwebsockets.org) — WebSocket + TLS transport layer; brings its own
+  OpenSSL/LibreSSL requirements; install via system package or build from source
+- **cJSON** — lightweight JSON parser/emitter; single `.c` / `.h` to vendor into `c/`
+- **LibreSSL** — preferred over OpenSSL where available; drop-in compatible API; provides
+  `EVP_*`, `EC_*`, `RSA_*` used throughout
+- **libev** — event loop for async I/O (required by libwebsockets); system package `libev-dev`
+- **Unity** — single-file C test framework; vendor `unity.c` / `unity.h` into `c/test/`
+
 ### Implementation
-- [ ] [IMPL] Add `base64url_encode(buf, len) -> char*` helper (replaces `+/` with `-_`, strips `=`)
-- [ ] [IMPL] Add `base64url_decode(str) -> {buf, len}` helper
-- [ ] [IMPL] Add `cJSON` (or equivalent) dependency for JSON serialisation
+- [ ] [IMPL] Vendor cJSON (`cJSON.c` / `cJSON.h`) into `c/`
+- [ ] [IMPL] Vendor Unity (`unity.c` / `unity.h`) into `c/test/`
+- [ ] [IMPL] Add `base64url_encode(const uint8_t *buf, size_t len) -> char*` helper
+- [ ] [IMPL] Add `base64url_decode(const char *str, size_t *out_len) -> uint8_t*` helper
 - [ ] [IMPL] Fix EC public-key extraction: use `EVP_PKEY_get1_EC_KEY` + `EC_KEY_get0_public_key`
       to correctly populate `signing_pub`
-- [ ] [IMPL] Fix `RSA_generate_key_ex`: pass a `BIGNUM` set to `RSA_F4` (65537) as the exponent
-- [ ] [IMPL] Replace PEM-file storage with `pki_keys.json` using canonical JWK structure
-- [ ] [IMPL] Add `pki_generate(const char *path)` – generates keys, writes JWK JSON
+- [ ] [IMPL] Fix RSA key generation: use `EVP_PKEY_keygen` with explicit `RSA_F4` (65537)
+      exponent via `EVP_PKEY_CTX_set_rsa_keygen_pubexp`
+- [ ] [IMPL] Replace PEM-file storage with `pki_keys.json` using cJSON + canonical JWK structure
+- [ ] [IMPL] Add `pki_generate(const char *path)` – generates keys, writes JWK JSON via cJSON
 - [ ] [IMPL] Add `pki_export(char **out_json)` – serialises current keys to JWK JSON string
 - [ ] [IMPL] Add `pki_import(const char *json)` – parses JWK JSON into module-level key pointers
 - [ ] [NEW]  Add `pki_encrypt_with(const char *pub_jwk_json, const char *msg, char **out_b64)`
 - [ ] [NEW]  Add `pki_register(const char *mesgd_pub_jwk_json, char **out_b64)`
 - [ ] [IMPL] Wrap `main()` under `#ifdef PKI_DEMO`
+- [ ] [IMPL] Add `Makefile` in `c/` with `deps` (fetch/build cJSON, Unity), `build`, `test` targets;
+      link against libwebsockets, libev, libssl (or libssl from LibreSSL)
 
 ### Tests (`c/test_pki.c`)
-- [ ] [NEW]  Create test file; add `#include` for Unity or custom `ASSERT` macros
+- [ ] [NEW]  Create test file; `#include "unity.h"`; `setUp` / `tearDown` per Unity convention
 - [ ] [TEST] `test_init` – `pki_init()` succeeds; key pointers are non-NULL
 - [ ] [TEST] `test_sign_verify` – sign "Hello World"; verify returns 1
 - [ ] [TEST] `test_verify_wrong_msg` – verify with different message returns 0
 - [ ] [TEST] `test_encrypt_decrypt` – round-trip returns original plaintext
-- [ ] [TEST] `test_init_twice` – second `pki_init()` loads same keys (sign before and after, verify both)
-- [ ] [TEST] `test_export` – `pki_export()` returns JSON with `signing_pub`, `signing_priv`,
-      `encrypting_pub`, `encrypting_priv`; verify `kty` fields
+- [ ] [TEST] `test_init_twice` – second `pki_init()` loads same keys; sign before and after, verify both
+- [ ] [TEST] `test_export` – `pki_export()` returns valid JSON with four JWKs; correct `kty` fields
 - [ ] [TEST] `test_import_roundtrip` – export JSON, `pki_import()` into fresh state, sign/verify succeeds
 - [ ] [TEST] `test_generate` – `pki_generate(path)` writes valid JWK JSON file at `path`
-- [ ] [TEST] `test_encrypt_with` – encrypt with exported pub JWK; original priv can decrypt
-- [ ] [TEST] `test_register` – `pki_register()` returns non-empty base64 ciphertext
-- [ ] [TEST] Cleanup: delete `pki_keys.json` in test teardown
+- [ ] [TEST] `test_write_cross_lang_sig` – sign "Hello World", write `../fixtures/sig_c.json`
+- [ ] [TEST] `test_verify_cross_lang_sigs` – verify `../fixtures/sig_<lang>.json` for all passing langs
+- [ ] [TEST] Cleanup: delete `pki_keys.json` in `tearDown`
 
 ---
 
 ## `pki.cc` / `cpp/test_pki.cc`
 
+### Dependencies
+Shares all dependencies with the C implementation — libwebsockets, LibreSSL/OpenSSL, libev, cJSON.
+Additionally:
+- **nlohmann/json** — single-header C++ JSON library; vendor `nlohmann/json.hpp` into `cpp/`
+- **Unity** — same Unity test framework as C (or Google Test if preferred; Unity is simpler to vendor)
+
 ### Implementation
-- [ ] [IMPL] Fix `PEM_read_PrivateKey` / `PEM_read_PUBKEY` calls: replace `std::ifstream` usage
-      with `FILE*` (use `fopen` / `BIO_new_file` / `BIO_new_mem_buf`)
-- [ ] [IMPL] Fix EC public-key extraction (same as `pki.c`)
-- [ ] [IMPL] Fix `RSA_generate_key_ex` exponent argument (same as `pki.c`)
-- [ ] [IMPL] Add `nlohmann/json` single-header for JSON serialisation
-- [ ] [IMPL] Add `base64url_encode` / `base64url_decode` helpers
-- [ ] [IMPL] Replace PEM-file storage with `pki_keys.json` using canonical JWK structure
-- [ ] [IMPL] Add `PKIImpl::generate(const std::string& path)`
-- [ ] [IMPL] Add `PKIImpl::exportJWK() -> nlohmann::json`
-- [ ] [IMPL] Add `PKIImpl::importJWK(const nlohmann::json&)`
-- [ ] [NEW]  Add `PKIImpl::encrypt_with(const nlohmann::json& pub_jwk, const std::string& msg)`
-- [ ] [NEW]  Add `PKIImpl::reg(const nlohmann::json& mesgd_pub_jwk)` (avoids reserved word)
+- [ ] [IMPL] Vendor `nlohmann/json.hpp` into `cpp/`
+- [ ] [IMPL] Fix EC public-key extraction (same fix as `pki.c`)
+- [ ] [IMPL] Fix RSA key generation exponent (same fix as `pki.c`)
+- [ ] [IMPL] Add `base64url_encode` / `base64url_decode` helpers (port directly from `pki.c`)
+- [ ] [IMPL] Replace PEM-file storage with `pki_keys.json` using nlohmann/json + canonical JWK structure
+- [ ] [IMPL] Add `PKI::generate(const std::string& path)`
+- [ ] [IMPL] Add `PKI::exportJWK() -> nlohmann::json`
+- [ ] [IMPL] Add `PKI::importJWK(const nlohmann::json&)`
+- [ ] [NEW]  Add `PKI::encrypt_with(const nlohmann::json& pub_jwk, const std::string& msg)`
+- [ ] [NEW]  Add `PKI::reg(const nlohmann::json& mesgd_pub_jwk)` (avoids reserved word)
 - [ ] [IMPL] Wrap `main()` under `#ifdef PKI_DEMO`
+- [ ] [IMPL] Add `Makefile` in `cpp/` sharing link flags with `c/Makefile`
 
 ### Tests (`cpp/test_pki.cc`)
-- [ ] [NEW]  Create test file; add Google Test (`gtest`) dependency
-- [ ] [TEST] `InitLoadsOrGeneratesKeys` – `impl.init()` leaves all four keys non-null
+- [ ] [NEW]  Create test file using Unity (consistent with C) or Google Test
+- [ ] [TEST] `InitLoadsOrGeneratesKeys` – `pki.init()` leaves all four keys non-null
 - [ ] [TEST] `SignVerifyRoundtrip` – sign/verify succeeds for same message
 - [ ] [TEST] `VerifyWrongMessageFails` – verify with mutated message returns false
 - [ ] [TEST] `EncryptDecryptRoundtrip` – plaintext recovered correctly
 - [ ] [TEST] `ReInitPreservesKeys` – sign before init, reload from file, verify still passes
-- [ ] [TEST] `ExportJWKStructure` – `exportJWK()` contains expected four top-level keys with correct `kty`
+- [ ] [TEST] `ExportJWKStructure` – `exportJWK()` has four JWKs with correct `kty`
 - [ ] [TEST] `ImportRoundtrip` – export → import into new instance → sign → verify
 - [ ] [TEST] `GenerateCreatesFile` – `generate(path)` writes file; file parses as valid JSON
-- [ ] [TEST] `EncryptWithForeignKey` – encrypt with exported pub JWK; original priv decrypts
-- [ ] [TEST] `RegisterReturnsCiphertext` – non-empty base64 string returned
-- [ ] [TEST] Cleanup: delete `pki_keys.json` in `TearDown`
+- [ ] [TEST] `WriteCrossLangSig` – write `../fixtures/sig_cpp.json`
+- [ ] [TEST] `VerifyCrossLangSigs` – verify all passing language fixtures
+- [ ] [TEST] Cleanup: delete `pki_keys.json` in teardown
 
 ---
 
@@ -244,6 +277,9 @@ by file; within each file, implementation tasks come before test tasks.
 
 ## `pki.java` / `java/PKITest.java`
 
+> Note: a Kotlin implementation (`pki.kt`) will be added alongside this one; both use JCA
+> and share the same algorithm constants. Java is done first as the reference; Kotlin ports it idiomatically.
+
 ### Implementation
 - [ ] [IMPL] Remove unused imports (`EncryptedPrivateKeyInfo`, `SecretKeyFactory`,
       `PBEKeySpec`, `PBEParameterSpec`)
@@ -276,6 +312,50 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [TEST] `@Test encryptWithForeignKey` – exported pub JWK; owner decrypts
 - [ ] [TEST] `@Test registerReturnsCiphertext` – non-empty base64 string
 - [ ] [TEST] `@BeforeEach` / `@AfterEach` cleanup: delete `pki_keys.json`
+
+---
+
+## `pki.kt` / `kotlin/test_pki.kt`
+
+> Uses command-line Kotlin (`kotlinc`). Crypto via JCA — same algorithms and parameters
+> as the Java implementation. Build with Gradle (single `build.gradle.kts` in `kotlin/`).
+
+### Dependencies
+- **Kotlin compiler** (`kotlinc`) — command-line; install via `sdk install kotlin` (SDKMAN)
+  or system package
+- **Gradle** — build tool; `./gradlew` wrapper committed to `kotlin/`
+- **`org.json`** or **`com.google.gson`** — JSON library (same choice as Java, added to `build.gradle.kts`)
+- **JUnit 5** (`junit-jupiter`) or **kotlin.test** — test framework; added to `build.gradle.kts`
+
+### Implementation
+- [ ] [NEW]  Create `kotlin/pki.kt` — `object PKI` with same interface as Java
+- [ ] [IMPL] `fun init(keyFile: String)` – load or generate JWK file; store keys in object fields
+- [ ] [IMPL] `fun generate(path: String)` – generate EC P-256 + RSA-2048 keys; write JWK JSON
+- [ ] [IMPL] `fun sign(message: String): String` – ECDSA P-256 / SHA-256; return `{"r":…,"s":…}` JSON
+- [ ] [IMPL] `fun verify(message: String, sigJson: String): Boolean` – reconstruct r,s; verify
+- [ ] [IMPL] `fun encrypt(message: String): String` – RSA-OAEP SHA-256/MGF1-SHA-256; return base64
+- [ ] [IMPL] `fun decrypt(ciphertextB64: String): String`
+- [ ] [IMPL] `fun exportJwks(): List<Map<String, Any>>` – flat 4-element JWK array
+- [ ] [IMPL] `fun importJwks(jwks: List<Map<String, Any>>)` – populate object keys from JWK array
+- [ ] [COMPAT] Explicitly set `OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,…)`
+      — same fix as Java to ensure SHA-256 MGF1
+- [ ] [NEW]  Add `fun encryptWith(pubJwk: Map<String, Any>, message: String): String`
+- [ ] [NEW]  Add `fun register(mesgdPubJwk: Map<String, Any>): String`
+- [ ] [IMPL] Create `kotlin/build.gradle.kts` with deps and `test` task
+
+### Tests (`kotlin/test_pki.kt`)
+- [ ] [NEW]  Create `kotlin/test_pki.kt`; use JUnit 5 or kotlin.test
+- [ ] [TEST] `initLoadsOrGeneratesKeys` – `PKI.init()` does not throw
+- [ ] [TEST] `signVerifyRoundtrip` – signed message verifies correctly
+- [ ] [TEST] `verifyWrongMessageFails` – returns false
+- [ ] [TEST] `encryptDecryptRoundtrip` – plaintext recovered
+- [ ] [TEST] `signatureIsJson` – `sign()` returns JSON with `r` and `s` base64url fields
+- [ ] [TEST] `exportJwksStructure` – four keys with correct `kty`
+- [ ] [TEST] `importRoundtrip` – export → import → sign → verify
+- [ ] [TEST] `generateCreatesFile` – file exists at path; valid JSON with four keys
+- [ ] [TEST] `writeCrossLangSig` – write `../fixtures/sig_kotlin.json`
+- [ ] [TEST] `verifyCrossLangSigs` – verify all passing language fixtures
+- [ ] `@BeforeEach` / `@AfterEach` cleanup: delete `pki_keys.json`
 
 ---
 
@@ -346,17 +426,24 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.php` / `php/test_pki.php` ← **next**
+## `pki.php` / `php/test_pki.php`
+
+### Dependencies
+- **phpseclib 3.0** — required for correct RSA-OAEP with SHA-256 MGF1; native PHP
+  `OPENSSL_PKCS1_OAEP_PADDING` hardwires MGF1 to SHA-1 and cannot interoperate with other
+  implementations or with browser `crypto.subtle`; install via Composer
+- **PHPUnit** — test framework; install via Composer
 
 ### Implementation
+- [ ] [IMPL] Add `composer.json` with `phpseclib/phpseclib: ^3.0` and `phpunit/phpunit` deps
 - [ ] [IMPL] Add `declare(strict_types=1)` and `<?php` header; set minimum PHP to 8.0
 - [ ] [IMPL] Add `base64url_encode(string) -> string` helper
 - [ ] [IMPL] Add `base64url_decode(string) -> string` helper
-- [ ] [COMPAT] Replace `openssl_public_encrypt` / `openssl_private_decrypt` with
-      `openssl_pkey_encrypt` / `openssl_pkey_decrypt` using explicit SHA-256 MGF1 options
+- [ ] [COMPAT] Replace all OpenSSL encrypt/decrypt with phpseclib `RSA` configured for
+      OAEP + SHA-256 hash + SHA-256 MGF1 (`$rsa->withHash('sha256')->withMGFHash('sha256')`)
 - [ ] [IMPL] Replace `serialize()` / `unserialize()` with `json_encode()` / `json_decode()`
       writing `pki_keys.json` using canonical JWK structure
-- [ ] [IMPL] Implement JWK serialisation using `openssl_pkey_get_details()` plus base64url
+- [ ] [IMPL] Implement JWK serialisation: use phpseclib `EC`/`RSA` key export for component extraction
 - [ ] [IMPL] Add `public static function generate(string $path): array`
 - [ ] [IMPL] Add `public static function export(): array`
 - [ ] [IMPL] Add `public static function import(array $jwk): void`
@@ -374,8 +461,8 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [TEST] `testExportJWKStructure` – array contains four keys with correct `kty`
 - [ ] [TEST] `testImportRoundtrip` – export → import → sign → verify
 - [ ] [TEST] `testGenerateCreatesFile` – file at path; valid JSON
-- [ ] [TEST] `testEncryptWithForeignKey` – owner decrypts
-- [ ] [TEST] `testRegisterReturnsCiphertext` – non-empty string
+- [ ] [TEST] `testWriteCrossLangSig` – write `../fixtures/sig_php.json`
+- [ ] [TEST] `testVerifyCrossLangSigs` – verify all passing language fixtures
 - [ ] [TEST] `setUp` / `tearDown`: delete `pki_keys.json`
 
 ---
@@ -452,15 +539,15 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] [IMPL] `pub fn import_jwks(jwks: &[Value]) -> Result<Self, Box<dyn Error>>`
 - [ ] [NEW]  Add `pub fn encrypt_with` / `pub fn register`
 
-### Tests (`tests/test_pki.rs`) — 7/7 passing
-- [x] [NEW]  Integration test file (`tests/test_pki.rs`)
+### Tests (`rust/tests/test_pki.rs`) — 7/7 passing
+- [x] [NEW]  Integration test file (`rust/tests/test_pki.rs`)
 - [x] [TEST] sign/verify roundtrip
 - [x] [TEST] signature is JSON with r and s fields
 - [x] [TEST] encrypt/decrypt roundtrip
 - [x] [TEST] generate creates JSON file (structural check, 4 keys, correct ops)
 - [x] [TEST] generated keys work (import roundtrip)
-- [x] [TEST] write cross-lang signature (`test/fixtures/sig_rust.json`)
-- [x] [TEST] verify cross-lang signatures (Erlang, Python, JavaScript, Ruby)
+- [x] [TEST] write cross-lang signature (`fixtures/sig_rust.json`)
+- [x] [TEST] verify cross-lang signatures (Erlang, Python, JavaScript, Ruby, Go)
 
 ---
 
@@ -560,25 +647,26 @@ These are new files to be created in each language (referenced in the original p
 
 ## Summary Count
 
-| Category | Total items |
-|----------|-------------|
-| Cross-language interop fixes | 4 |
-| pki.erl + tests (original) | 8 |
-| pki.go + tests (original) | 12 |
-| pki.py + tests (original) | 12 |
-| pki.mjs (original) | 3 |
-| pki.c + tests | 18 |
-| pki.cc + tests | 18 |
-| pki.cs + tests | 18 |
-| pki.hs + tests | 20 |
-| pki.java + tests | 19 |
-| pki.lua + tests | 20 |
-| pki.ml + tests | 20 |
-| pki.php + tests | 18 |
-| pki.pl + tests | 18 |
-| pki.rb + tests | 20 |
-| pki.rs + tests | 18 |
-| pki.swift + tests | 22 |
-| pki.f + tests | 14 |
-| mesgd modules + tests | 7 |
-| **Total** | **299** |
+**Working (full test suite + cross-lang interop):** Erlang · Python · JavaScript · Ruby · Rust · Go — 43/43 tests
+
+| Language | Status | Remaining open items |
+|----------|--------|----------------------|
+| Erlang | ✓ done | license header |
+| Go | ✓ done | `EncryptWith`, `Register` |
+| Python | ✓ done | `encrypt_with`, `register` |
+| JavaScript | ✓ done | `encryptWith`, `register` |
+| Ruby | ✓ done | `encrypt_with`, `register`, 2 tests |
+| Rust | ✓ done | `encrypt_with`, `register` |
+| C | ← next | full rewrite (libwebsockets, cJSON, LibreSSL, libev, Unity) |
+| PHP | pending | full rewrite with phpseclib 3.0 |
+| C++ | pending | rewrite shares C deps + nlohmann/json |
+| Java | pending | full rewrite (JCA, JUnit 5) |
+| Kotlin | pending | new — command-line kotlinc, JCA, Gradle |
+| C# | pending | JWK storage, Generate/Export/Import, tests |
+| Haskell | pending | full rewrite (crypton, Aeson) |
+| Lua | pending | full rewrite (lua-openssl, dkjson, busted) |
+| OCaml | pending | full rewrite (mirage-crypto, yojson, alcotest) |
+| Perl | pending | full rewrite (Crypt::Perl, JSON::PP) |
+| Swift | pending | full rewrite (Security framework, XCTest) |
+| Forth | pending | demo-level only (no JWK/register) |
+| mesgd modules | pending | WebSocket connect/send/receive for all langs |
