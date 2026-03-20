@@ -2,10 +2,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(JWKS_FILE,  "test/fixtures/jwks.json").
--define(GEN_FILE,   "test/fixtures/test_erlang.json").
--define(SIG_OUT,    "test/fixtures/sig_erlang.json").
--define(CROSS_LANGS, ["python", "javascript", "ruby"]).
+-define(JWKS_FILE,  "../fixtures/jwks.json").
+-define(GEN_FILE,   "../fixtures/test_erlang.json").
+-define(SIG_OUT,    "../fixtures/sig_erlang.json").
+-define(CROSS_LANGS, ["python", "javascript", "ruby", "rust", "go"]).
 
 %%%-------------------------------------------------------------------
 %%% Setup / teardown
@@ -98,7 +98,7 @@ tests(_) ->
 	 ?_test(begin
 		pki:init(?JWKS_FILE),
 		lists:foreach(fun(Lang) ->
-			Path = "test/fixtures/sig_" ++ Lang ++ ".json",
+			Path = "../fixtures/sig_" ++ Lang ++ ".json",
 			case file:read_file(Path) of
 				{ok, Bin} ->
 					Rec = json:decode(Bin),

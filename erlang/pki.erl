@@ -3,7 +3,6 @@
 
 -export([ init/1, generate/1, sign/1, verify/2, encrypt/1, decrypt/1, export/4, import/1 ]).
 
--define(KEY_FILE, "pki_keys.json").
 -define(CURVE, secp256r1).
 -define(RSA_OPTS, [{rsa_padding, rsa_pkcs1_oaep_padding}, {rsa_oaep_md, sha256}]).
 

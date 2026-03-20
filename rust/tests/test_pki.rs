@@ -1,10 +1,10 @@
 use mesgd_pki::PKI;
 use std::fs;
 
-const JWKS_FILE: &str = "test/fixtures/jwks.json";
-const GEN_FILE: &str  = "test/fixtures/test_rust.json";
-const SIG_OUT: &str   = "test/fixtures/sig_rust.json";
-const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby"];
+const JWKS_FILE: &str = "../fixtures/jwks.json";
+const GEN_FILE: &str  = "../fixtures/test_rust.json";
+const SIG_OUT: &str   = "../fixtures/sig_rust.json";
+const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby", "go"];
 
 #[test]
 fn test_sign_verify_roundtrip() {
@@ -81,7 +81,7 @@ fn test_write_cross_lang_signature() {
 fn test_verify_cross_lang_signatures() {
     let pki = PKI::init(JWKS_FILE).expect("init failed");
     for lang in CROSS_LANGS {
-        let path = format!("test/fixtures/sig_{}.json", lang);
+        let path = format!("../fixtures/sig_{}.json", lang);
         if !std::path::Path::new(&path).exists() {
             eprintln!("Skipping {}: file not found", path);
             continue;

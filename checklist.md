@@ -43,16 +43,13 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] [IMPL] Refactor `init/1` to call `generate(KeyFile)` instead of inlining key-gen
 - [ ] [IMPL] Add MIT No Attribution license header
 
-### `pki.go` ← **next batch**
-- [ ] [IMPL] Remove `encoding/pem` usage; replace with JWK JSON serialisation
-- [ ] [IMPL] Change storage file from `pki_keys.gob` to `pki_keys.json`
-- [ ] [IMPL] Add `Export() []map[string]interface{}`
-- [ ] [IMPL] Add `ImportJWKS([]map[string]interface{}) error`
-- [ ] [IMPL] Expand `PKI` struct to hold `signingPub` and `encryptingPub`
-- [ ] [IMPL] Add `Generate(path string) error` function
-- [ ] [IMPL] Remove `main()`; change `package main` to `package pki`
-- [ ] [IMPL] Fix `Sign` to output `{"r":"b64url","s":"b64url"}` JSON
-- [ ] [IMPL] Fix `Verify` to accept that JSON
+### `pki.go` ✓ COMPLETE
+- [x] [IMPL] JWK JSON serialisation (no PEM, no gob); flat 4-key array
+- [x] [IMPL] `ExportJWKS() []map[string]interface{}`
+- [x] [IMPL] `ImportJWKS([]map[string]interface{}) (*PKI, error)` — handles both `[]string` and `[]interface{}` key_ops
+- [x] [IMPL] `Generate(path string) (*PKI, error)`
+- [x] [IMPL] `package pki`; `Sign` returns `{"r":"b64url","s":"b64url"}` JSON
+- [x] [IMPL] `Verify` accepts that JSON
 - [ ] [NEW]  Add `EncryptWith(pubJwk map[string]interface{}, msg string) (string, error)`
 - [ ] [NEW]  Add `Register(mesgdPubJwk map[string]interface{}) (string, error)`
 
@@ -91,10 +88,10 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] [TEST] test_generated_keys_work – import round-trip → sign → verify
 - [x] [TEST] Cross-language signature write and verify
 
-### `test/pki_test.go` ← **next batch**
-- [ ] [IMPL] Rewrite to use shared fixture jwks.json; add cross-lang tests
-- [ ] [IMPL] Update to `package pki_test`; import `mesgd-sdk`
-- [ ] [TEST] Standard 8-test suite matching other languages
+### `go/pki_test.go` ✓ COMPLETE — 7/7 passing
+- [x] [IMPL] Uses shared fixture `../fixtures/jwks.json`; cross-lang tests included
+- [x] [IMPL] `package pki_test`; imports `mesgd-sdk`
+- [x] [TEST] Full 7-test suite: sign/verify roundtrip, signature JSON, encrypt/decrypt, generate, import roundtrip, write cross-lang sig, verify cross-lang sigs (erlang, python, javascript, ruby, rust)
 
 ---
 

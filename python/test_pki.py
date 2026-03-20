@@ -3,14 +3,14 @@ import sys
 import json
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(__file__))
 from pki import PKI
 
-FIXTURES    = os.path.join(os.path.dirname(__file__), 'fixtures')
+FIXTURES    = os.path.join(os.path.dirname(__file__), '..', 'fixtures')
 JWKS_FILE   = os.path.join(FIXTURES, 'jwks.json')
 GEN_FILE    = os.path.join(FIXTURES, 'test_python.json')
 SIG_OUT     = os.path.join(FIXTURES, 'sig_python.json')
-CROSS_LANGS = ['erlang', 'javascript', 'ruby']
+CROSS_LANGS = ['erlang', 'javascript', 'ruby', 'rust', 'go']
 
 
 class TestPKI(unittest.TestCase):

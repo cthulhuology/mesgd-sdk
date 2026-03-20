@@ -4,16 +4,16 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURES   = join(__dirname, 'fixtures');
+const FIXTURES   = join(__dirname, '..', 'fixtures');
 const JWKS_FILE  = join(FIXTURES, 'jwks.json');
 const GEN_FILE   = join(FIXTURES, 'test_javascript.json');
 const SIG_OUT    = join(FIXTURES, 'sig_javascript.json');
-const CROSS_LANGS = ['erlang', 'python', 'ruby'];
+const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go'];
 
 // Use a test-local localStorage so tests don't pollute or consume the shared store
 global.localStorage = new LocalStorage(join(FIXTURES, 'ls_javascript'));
 
-import { PKI } from '../pki.mjs';
+import { PKI } from './pki.mjs';
 
 // --- minimal test harness ---
 let passed = 0, failed = 0;
