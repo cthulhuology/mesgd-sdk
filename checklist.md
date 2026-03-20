@@ -19,18 +19,18 @@ by file; within each file, implementation tasks come before test tasks.
 
 - [x] [COMPAT] Canonicalise ECDSA signature wire format to JWK-style JSON
       (`{"r":"<base64url>","s":"<base64url>"}`) across all implementations;
-      C# done — remaining implementations still output DER or raw P1363
+      done for Erlang, Python, JavaScript, Ruby, Rust; C# and others pending
 - [x] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
-      digest **and** the MGF1 digest; Java, Ruby, Rust fixed; PHP has no native
-      solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
+      digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust;
+      PHP has no native solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
       requires phpseclib 3.0 for true interoperability (documented in pki.php)
 - [x] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`);
-      done for Erlang, Python, JavaScript, Ruby
+      done for Erlang, Python, JavaScript, Ruby, Rust
 - [x] [COMPAT] Verify that all implementations store keys as a flat JWK array
       (not a named dict); keys are identified by `use` (`"sig"` / `"enc"`) and
       `key_ops` (`["sign"]` / `["verify"]` / `["encrypt"]` / `["decrypt"]`);
-      done for Erlang, Python, JavaScript, Ruby; pki.mjs updated
+      done for Erlang, Python, JavaScript, Ruby, Rust
 
 ---
 
@@ -432,22 +432,28 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.rs` / `tests/test_pki.rs` ← **next batch**
+## `pki.rs` / `tests/test_pki.rs` ✓ COMPLETE
 
 ### Implementation
-- [x] [COMPAT] Fix OAEP SHA-256: uses `PkeyCtx` + `set_rsa_oaep_md(sha256)` + `set_rsa_mgf1_md(sha256)`
-- [ ] [IMPL] Add Cargo.toml; set `[lib] path = "pki.rs"`
-- [ ] [IMPL] Add `base64url_encode` / `base64url_decode` helpers (URL_SAFE_NO_PAD engine)
-- [ ] [IMPL] Replace PEM-string JSON with JWK flat-array serialisation
-- [ ] [IMPL] Fix `Sign` to output `{"r":"b64url","s":"b64url"}` JSON (parse DER via EcdsaSig)
-- [ ] [IMPL] Fix `Verify` to accept that JSON
-- [ ] [IMPL] Add `pub fn generate(path: &str) -> Result<Self, Box<dyn Error>>`
-- [ ] [IMPL] Add `pub fn import_jwks(jwks: &[Value]) -> Result<Self, Box<dyn Error>>`
+- [x] [COMPAT] Fix OAEP SHA-256: uses `PkeyCtx` + `set_rsa_oaep_md(Md::sha256())` + `set_rsa_mgf1_md(Md::sha256())`; `Padding::PKCS1_OAEP`
+- [x] [IMPL] Add Cargo.toml; set `[lib] path = "pki.rs"`
+- [x] [IMPL] Add `b64url_enc` / `b64url_dec` helpers (URL_SAFE_NO_PAD engine)
+- [x] [IMPL] JWK flat-array serialisation (4 keys: EC pub/priv, RSA pub/priv)
+- [x] [IMPL] `sign()` outputs `{"r":"b64url","s":"b64url"}` JSON via EcdsaSig DER parse
+- [x] [IMPL] `verify()` accepts that JSON, reconstructs DER for verification
+- [x] [IMPL] `pub fn generate(path: &str) -> Result<Self, Box<dyn Error>>`
+- [x] [IMPL] `pub fn import_jwks(jwks: &[Value]) -> Result<Self, Box<dyn Error>>`
 - [ ] [NEW]  Add `pub fn encrypt_with` / `pub fn register`
 
-### Tests (`tests/test_pki.rs`)
-- [ ] [NEW]  Integration test file; 8-test suite matching other languages
-- [ ] [TEST] Cross-language signature write and verify
+### Tests (`tests/test_pki.rs`) — 7/7 passing
+- [x] [NEW]  Integration test file (`tests/test_pki.rs`)
+- [x] [TEST] sign/verify roundtrip
+- [x] [TEST] signature is JSON with r and s fields
+- [x] [TEST] encrypt/decrypt roundtrip
+- [x] [TEST] generate creates JSON file (structural check, 4 keys, correct ops)
+- [x] [TEST] generated keys work (import roundtrip)
+- [x] [TEST] write cross-lang signature (`test/fixtures/sig_rust.json`)
+- [x] [TEST] verify cross-lang signatures (Erlang, Python, JavaScript, Ruby)
 
 ---
 
