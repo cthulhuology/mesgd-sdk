@@ -1,8 +1,8 @@
 
 .PHONY: tests deps deps-python deps-javascript deps-rust \
-        test-erlang test-python test-javascript test-ruby test-rust test-go clean
+        test-erlang test-python test-javascript test-ruby test-rust test-go test-c clean
 
-tests: deps test-erlang test-python test-javascript test-ruby test-rust test-go
+tests: deps test-erlang test-python test-javascript test-ruby test-rust test-go test-c
 
 deps: deps-python deps-javascript deps-rust
 
@@ -39,10 +39,15 @@ test-go:
 	@echo "=== Go ==="
 	cd go && go test -v .
 
+test-c:
+	@echo "=== C ==="
+	cd c && make test
+
 clean:
 	rm -f erlang/*.beam
 	rm -rf rust/target
 	rm -rf javascript/node_modules
+	cd c && make clean
 	find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null; true
 	find . -name '*.pyc' -delete 2>/dev/null; true
 	rm -f fixtures/sig_*.json fixtures/test_*.json

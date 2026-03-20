@@ -16,6 +16,10 @@ rust/target/
 # Go
 go/go.sum
 
+# C
+c/test_pki
+c/test_pki_dbg
+
 # Editor / OS
 *.un~
 Makefile~
