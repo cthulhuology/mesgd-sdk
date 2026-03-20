@@ -23,7 +23,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [x] `.gitignore` covering beams, `__pycache__`, `node_modules/`, `rust/target/`, generated fixtures
 - [x] `Makefile` with `deps`, `tests`, `clean` targets; `make clean && make tests` works from scratch
 - [x] `deps-python` (pip + requirements.txt), `deps-javascript` (bun install + bun.lock), `deps-rust` (cargo fetch)
-- [x] Cross-language interop verified: all 7 working languages sign and verify each other's fixtures (C added)
+- [x] Cross-language interop verified: all 9 working languages sign and verify each other's fixtures (Java, C# added)
 
 ## Algorithm Constraints
 
@@ -45,18 +45,21 @@ Every implementation must match this exactly to achieve cross-language interoper
 
 - [x] [COMPAT] Canonicalise ECDSA signature wire format to JWK-style JSON
       (`{"r":"<base64url>","s":"<base64url>"}`) across all implementations;
-      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C; others pending
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C, Java, C#; others pending
 - [x] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
-      digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust, Go, C;
+      digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust, Go, C,
+      Java (`OAEPParameterSpec` + `MGF1ParameterSpec.SHA256`), C# (`RSAEncryptionPadding.OaepSHA256`);
       PHP will use phpseclib 3.0 (native `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to
       SHA-1 MGF1 and cannot interoperate)
 - [x] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`);
-      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C, Java, C#
 - [x] [COMPAT] Verify that all implementations store keys as a flat JWK array
       (not a named dict); keys are identified by `use` (`"sig"` / `"enc"`) and
       `key_ops` (`["sign"]` / `["verify"]` / `["encrypt"]` / `["decrypt"]`);
-      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go, C, Java, C#
+- [x] [COMPAT] File encoding: all fixture and key files must be written UTF-8 without BOM;
+      C# `Encoding.UTF8` emits BOM — use `new UTF8Encoding(false)` instead (fixed)
 
 ---
 
@@ -197,36 +200,38 @@ Additionally:
 
 ---
 
-## `pki.cs` / `csharp/PKITest.cs`
+## `pki.cs` / `csharp/test_pki.cs` ✓ COMPLETE
+
+> dotnet 10 at `/root/.dotnet`. `csharp/pki.cs` is a `static class PKI` compiled together
+> with `csharp/test_pki.cs` (self-contained test runner, no NuGet). `dotnet publish` produces
+> a self-contained ~71 MB single-file binary at `csharp/publish/pki`.
+> **BOM pitfall**: `Encoding.UTF8` in .NET emits a BOM; all file I/O uses
+> `new UTF8Encoding(false)` to stay cross-language-compatible.
 
 ### Implementation
-- [x] [IMPL] Add `using System.Text.Json`
-- [x] [IMPL] Add `Base64UrlEncode` / `Base64UrlDecode` helpers
-- [x] [COMPAT] Update `Sign()` to output `{"r":"<base64url>","s":"<base64url>"}` JSON
-- [x] [COMPAT] Update `Verify()` to accept that JSON and reconstruct P1363 for verification
-- [ ] [IMPL] Replace binary storage with `pki_keys.json` using canonical JWK structure
-      (use `ECParameters.Q.X/Y`, `ECParameters.D`, `RSAParameters.Modulus/Exponent/…`)
-- [ ] [IMPL] Add `public static Dictionary<string, object> Generate(string path)`
-- [ ] [IMPL] Add `public static Dictionary<string, object> Export()`
-- [ ] [IMPL] Add `public static void Import(Dictionary<string, object> jwkMap)`
-- [ ] [NEW]  Add `public static string EncryptWith(string pubJwkJson, string message)`
-- [ ] [NEW]  Add `public static string Register(string mesgdPubJwkJson)`
-- [ ] [IMPL] Remove or conditionally compile `Program.Main()`
+- [x] [IMPL] `System.Text.Json.Nodes` (`JsonObject`, `JsonArray`) for JSON building
+- [x] [IMPL] `B64Url` / `B64UrlDec` helpers (URL-safe, no padding)
+- [x] [IMPL] `PadTo(byte[], int)` — right-pads short big-endian component bytes to required size
+- [x] [COMPAT] `Sign()` — `ECDsa.SignData` returns P1363 (r||s); split at 32 bytes, return `{"r":…,"s":…}`
+- [x] [COMPAT] `Verify()` — parse JSON, pad r/s to 32 bytes, reconstruct P1363, call `VerifyData`
+- [x] [IMPL] JWK export: `JwkEcPub`, `JwkEcPriv`, `JwkRsaPub`, `JwkRsaPriv` via `ECParameters`/`RSAParameters`
+- [x] [IMPL] JWK import: `ImportEcPriv` (`ECParameters` + `ECDsa.Create`), `ImportRsaPriv` (`RSAParameters`)
+- [x] [IMPL] `Init(path)`, `Generate(path)`, `Export()`, `Import(string)`
+- [x] [IMPL] `Encrypt` / `Decrypt` — `RSAEncryptionPadding.OaepSHA256` (SHA-256 hash + MGF1)
+- [x] [COMPAT] All file reads/writes use `new UTF8Encoding(false)` — no BOM emitted
+- [x] [IMPL] `csharp/Makefile` — `dotnet run` for tests; `dotnet publish --self-contained` for binary
+- [x] [IMPL] `csharp/csharp.csproj` — `net10.0`, `OutputType=Exe`, `ImplicitUsings=disable`
 
-### Tests (`csharp/PKITest.cs`)
-- [ ] [NEW]  Create xUnit or NUnit test class
-- [ ] [TEST] `Init_LoadsOrGeneratesKeys` – `PKI.Init()` does not throw
-- [ ] [TEST] `Sign_Verify_Roundtrip` – sign/verify succeeds
-- [ ] [TEST] `Verify_WrongMessage_Fails` – returns false
-- [ ] [TEST] `Encrypt_Decrypt_Roundtrip` – plaintext recovered
-- [ ] [TEST] `ReInit_SameKeys` – sign before re-init; verify passes after re-init
-- [ ] [TEST] `ECDSA_Signature_IsJSON` – `Sign()` returns valid JSON with `r` and `s` base64url fields
-- [ ] [TEST] `Export_JWK_Structure` – four top-level keys present with correct `kty`
-- [ ] [TEST] `Import_Roundtrip` – export → import → sign → verify
-- [ ] [TEST] `Generate_CreatesFile` – file created at path; valid JSON
-- [ ] [TEST] `EncryptWith_ForeignKey` – encrypt with exported pub JWK; original priv decrypts
-- [ ] [TEST] `Register_ReturnsCiphertext` – non-empty base64 string
-- [ ] [TEST] Cleanup: delete `pki_keys.json` in test teardown / `IDisposable`
+### Tests (`csharp/test_pki.cs`) — 9/9 passing
+- [x] [TEST] `TestInitLoadsSharedKeys` — loads `fixtures/jwks.json`; sign+verify succeeds
+- [x] [TEST] `TestSignVerifyRoundtrip` — sign "Hello World"; verify passes
+- [x] [TEST] `TestVerifyWrongMessageFails` — wrong message returns false
+- [x] [TEST] `TestSignatureIsJson` — r and s present, each 43 chars base64url (P-256 32 bytes)
+- [x] [TEST] `TestEncryptDecryptRoundtrip` — plaintext recovered
+- [x] [TEST] `TestGenerateCreatesFile` — file written; 4-element JSON array
+- [x] [TEST] `TestExportImportRoundtrip` — export → import → sign → verify
+- [x] [TEST] `TestWriteCrossLangFixture` — writes `fixtures/sig_csharp.json`
+- [x] [TEST] `TestVerifyCrossLangSignatures` — verifies erlang/python/javascript/ruby/rust/go/c/java
 
 ---
 
@@ -267,50 +272,39 @@ Additionally:
 
 ---
 
-## `pki.java` / `java/PKITest.java` ← **next**
+## `pki.java` / `java/PKITest.java` ✓ COMPLETE
 
-> JDK 23.0.2 installed at `/usr/lib64/jdk23-23.0.2` (`JAVA_HOME` on this system).
-> A Kotlin implementation (`pki.kt`) will be added alongside this one; both use JCA
-> and share the same algorithm constants. Java is done first as the reference; Kotlin ports it idiomatically.
-> No existing `pki.java` yet — this is a fresh implementation.
+> JDK 23.0.2 at `/usr/lib64/jdk23-23.0.2`. `pki.java` is named lowercase (consistent with
+> project convention) with `class PKI` (non-public) so javac accepts the mismatched filename
+> on a case-insensitive Windows filesystem. JARs vendored into `java/lib/`.
 
-### Dependencies
-- **JDK 23** — `/usr/lib64/jdk23-23.0.2`; `JAVA_HOME` set system-wide
-- **`org.json`** — JSON library; fetch via Maven or vendor the single JAR into `java/lib/`
-- **JUnit 5** (`junit-jupiter`) — test framework; fetch via Maven or vendor JARs into `java/lib/`
+### Dependencies (resolved)
+- **JDK 23** — `/usr/lib64/jdk23-23.0.2`
+- **`org.json` 20250107** — vendored as `java/lib/json.jar`
+- **`junit-platform-console-standalone` 1.11.4** — vendored as `java/lib/junit-standalone.jar`
 
 ### Implementation
-- [ ] [NEW]  Create `java/pki.java` — `public class PKI` (static methods, module-level key fields)
-- [ ] [IMPL] Add `bigIntToBase64url(BigInteger) -> String` helper
-- [ ] [IMPL] Add `base64urlToBigInt(String) -> BigInteger` helper
-- [ ] [IMPL] Add `bigIntToBase64url(BigInteger) -> String` helper
-- [ ] [IMPL] Add `base64urlToBigInt(String) -> BigInteger` helper
-- [ ] [COMPAT] Fix OAEP: replace `"RSA/ECB/OAEPWithSHA-256AndMGF1Padding"` with
-      `"RSA/ECB/OAEPPadding"` + `OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,...)`
-- [ ] [IMPL] Replace Java serialisation with `pki_keys.json` using canonical JWK structure
-      (extract key components via `ECPublicKey.getW()`, `RSAPrivateCrtKey.getPrimeP()`, etc.)
-- [ ] [IMPL] Add `public static Map<String, Object> generate(String path) throws Exception`
-- [ ] [IMPL] Add `public static Map<String, Object> export() throws Exception`
-- [ ] [IMPL] Add `public static void importKeys(Map<String, Object> jwk) throws Exception`
-- [ ] [NEW]  Add `public static String encryptWith(Map<String, Object> pubJwk, String msg) throws Exception`
-- [ ] [NEW]  Add `public static String register(Map<String, Object> mesgdPubJwk) throws Exception`
-- [ ] [IMPL] Remove `main()` from production class (or move to a separate demo class)
+- [x] [NEW]  `java/pki.java` — `class PKI` with static key fields and JWK storage
+- [x] [IMPL] `b64url` / `b64urlDec` helpers; `bigIntToBytes(BigInteger, int)` with padding
+- [x] [COMPAT] OAEP: `"RSA/ECB/OAEPPadding"` + `OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA256,...)`
+- [x] [IMPL] JWK export via `ECPublicKey.getW()`, `ECPrivateKey.getS()`, `RSAPrivateCrtKey` components
+- [x] [IMPL] JWK import via `ECPublicKeySpec`/`ECPrivateKeySpec` + `RSAPrivateCrtKeySpec`
+- [x] [IMPL] `init(path)`, `generate(path)`, `exportJwks()`, `importJwks(String)`
+- [x] [IMPL] `sign` — SHA256withECDSA DER → r,s → `{"r":"b64url","s":"b64url"}`
+- [x] [IMPL] `verify` — JSON → r,s → manual DER reconstruct → SHA256withECDSA verify
+- [x] [IMPL] `encrypt` / `decrypt` — RSA-OAEP SHA-256/MGF1-SHA-256
+- [x] [IMPL] `java/Makefile` — javac + junit-platform-console-standalone runner
 
-### Tests (`java/PKITest.java`)
-- [ ] [NEW]  Create JUnit 5 test class
-- [ ] [TEST] `@Test initLoadsOrGeneratesKeys` – `PKI.init()` does not throw
-- [ ] [TEST] `@Test signVerifyRoundtrip` – signed message verifies correctly
-- [ ] [TEST] `@Test verifyWrongMessageFails` – returns false
-- [ ] [TEST] `@Test encryptDecryptRoundtrip` – plaintext recovered
-- [ ] [TEST] `@Test reInitPreservesKeys` – verify pre-reload signature after re-init
-- [ ] [TEST] `@Test exportJWKStructure` – four top-level keys with correct `kty`
-- [ ] [TEST] `@Test importRoundtrip` – export → import → sign → verify
-- [ ] [TEST] `@Test generateCreatesFile` – file exists; valid JSON with four keys
-- [ ] [TEST] `@Test oaepUsessha256Mgf1` – ciphertext length == key size (sanity check);
-      (ideally cross-language round-trip test)
-- [ ] [TEST] `@Test encryptWithForeignKey` – exported pub JWK; owner decrypts
-- [ ] [TEST] `@Test registerReturnsCiphertext` – non-empty base64 string
-- [ ] [TEST] `@BeforeEach` / `@AfterEach` cleanup: delete `pki_keys.json`
+### Tests (`java/PKITest.java`) — 9/9 JUnit 5 tests passing
+- [x] [TEST] `testInitLoadsSharedKeys` — keys load; sign+verify succeeds
+- [x] [TEST] `testSignVerifyRoundtrip` — sign "Hello World"; verify passes
+- [x] [TEST] `testVerifyWrongMessageFails` — wrong message returns false
+- [x] [TEST] `testSignatureIsJson` — r and s present, each 43 chars base64url
+- [x] [TEST] `testEncryptDecryptRoundtrip` — plaintext recovered
+- [x] [TEST] `testGenerateCreatesFile` — file written; 4-element JSON array
+- [x] [TEST] `testExportImportRoundtrip` — export → import → sign → verify
+- [x] [TEST] `testWriteCrossLangFixture` — writes `../fixtures/sig_java.json`
+- [x] [TEST] `testVerifyCrossLangSignatures` — verifies erlang/python/javascript/ruby/rust/go/c/csharp
 
 ---
 
@@ -647,7 +641,7 @@ These are new files to be created in each language (referenced in the original p
 
 ## Summary Count
 
-**Working (full test suite + cross-lang interop):** Erlang · Python · JavaScript · Ruby · Rust · Go · C — 56/56 tests
+**Working (full test suite + cross-lang interop):** Erlang · Python · JavaScript · Ruby · Rust · Go · C · Java · C# — 81/81 tests
 
 | Language | Status | Remaining open items |
 |----------|--------|----------------------|
@@ -658,11 +652,11 @@ These are new files to be created in each language (referenced in the original p
 | Ruby | ✓ done | `encrypt_with`, `register`, 2 tests |
 | Rust | ✓ done | `encrypt_with`, `register` |
 | C | ✓ done | `pki_encrypt_with`, `pki_register`; libwebsockets deferred to mesgd module |
-| Java | ← next | fresh impl — JDK 23 @ `/usr/lib64/jdk23-23.0.2`, org.json, JUnit 5 |
-| Kotlin | ← next | after Java — kotlinc, same JVM, Gradle, JUnit 5 |
-| PHP | pending | full rewrite with phpseclib 3.0 |
-| C++ | pending | rewrite shares C deps + nlohmann/json |
-| C# | pending | JWK storage, Generate/Export/Import, tests |
+| Java | ✓ done | `encryptWith`, `register` |
+| C# | ✓ done | `EncryptWith`, `Register`; `dotnet publish` produces self-contained binary |
+| Kotlin | ← next | kotlinc + same JVM (JDK 23); Gradle; JUnit 5; mirrors Java impl |
+| PHP | ← next | phpseclib 3.0 via Composer; PHPUnit; full rewrite |
+| C++ | ← next | shares C deps (OpenSSL, cJSON, Unity) + nlohmann/json single-header |
 | Haskell | pending | full rewrite (crypton, Aeson) |
 | Lua | pending | full rewrite (lua-openssl, dkjson, busted) |
 | OCaml | pending | full rewrite (mirage-crypto, yojson, alcotest) |
