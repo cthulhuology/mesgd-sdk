@@ -1,7 +1,19 @@
 
-.PHONY: tests test-erlang test-python test-javascript test-ruby test-rust test-go clean
+.PHONY: tests deps deps-python deps-javascript deps-rust \
+        test-erlang test-python test-javascript test-ruby test-rust test-go clean
 
-tests: test-erlang test-python test-javascript test-ruby test-rust test-go
+tests: deps test-erlang test-python test-javascript test-ruby test-rust test-go
+
+deps: deps-python deps-javascript deps-rust
+
+deps-python:
+	pip3 install -q --root-user-action=ignore -r python/requirements.txt
+
+deps-javascript:
+	cd javascript && bun install
+
+deps-rust:
+	cd rust && cargo fetch
 
 test-erlang:
 	@echo "=== Erlang ==="
@@ -29,3 +41,8 @@ test-go:
 
 clean:
 	rm -f erlang/*.beam
+	rm -rf rust/target
+	rm -rf javascript/node_modules
+	find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null; true
+	find . -name '*.pyc' -delete 2>/dev/null; true
+	rm -f fixtures/sig_*.json fixtures/test_*.json
