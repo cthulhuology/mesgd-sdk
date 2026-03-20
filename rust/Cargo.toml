@@ -1,0 +1,16 @@
+[package]
+name = "mesgd-pki"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "pki.rs"
+
+[[test]]
+name = "test_pki"
+path = "tests/test_pki.rs"
+
+[dependencies]
+openssl = { version = "0.10", features = ["v110"] }
+serde_json = "1.0"
+base64 = "0.22"
