@@ -8,7 +8,7 @@ const FIXTURES   = join(__dirname, '..', 'fixtures');
 const JWKS_FILE  = join(FIXTURES, 'jwks.json');
 const GEN_FILE   = join(FIXTURES, 'test_javascript.json');
 const SIG_OUT    = join(FIXTURES, 'sig_javascript.json');
-const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go'];
+const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go', 'c'];
 
 // Use a test-local localStorage so tests don't pollute or consume the shared store
 global.localStorage = new LocalStorage(join(FIXTURES, 'storage'));

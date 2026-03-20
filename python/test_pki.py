@@ -10,7 +10,7 @@ FIXTURES    = os.path.join(os.path.dirname(__file__), '..', 'fixtures')
 JWKS_FILE   = os.path.join(FIXTURES, 'jwks.json')
 GEN_FILE    = os.path.join(FIXTURES, 'test_python.json')
 SIG_OUT     = os.path.join(FIXTURES, 'sig_python.json')
-CROSS_LANGS = ['erlang', 'javascript', 'ruby', 'rust', 'go']
+CROSS_LANGS = ['erlang', 'javascript', 'ruby', 'rust', 'go', 'c']
 
 
 class TestPKI(unittest.TestCase):
