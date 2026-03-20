@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-require_once __DIR__ . '/../pki.php';
+require_once __DIR__ . '/pki.php';
 
 $passed = 0; $failed = 0;
 
@@ -14,10 +14,10 @@ function assert_equal(mixed $a, mixed $b, string $name): void {
     assert_true($a === $b, $name);
 }
 
-const JWKS_FILE  = __DIR__ . '/fixtures/jwks.json';
-const GEN_FILE   = __DIR__ . '/fixtures/test_php.json';
-const SIG_OUT    = __DIR__ . '/fixtures/sig_php.json';
-const CROSS_LANGS = ['erlang', 'python', 'javascript', 'ruby'];
+const JWKS_FILE  = __DIR__ . '/../fixtures/jwks.json';
+const GEN_FILE   = '/tmp/test_php.json';
+const SIG_OUT    = __DIR__ . '/../fixtures/sig_php.json';
+const CROSS_LANGS = ['erlang', 'python', 'javascript', 'ruby', 'rust', 'go', 'c', 'java', 'csharp'];
 
 echo "--- pki.php tests ---\n";
 
@@ -61,7 +61,7 @@ assert_true(file_exists(SIG_OUT), 'write cross-lang signature');
 // Test 7: verify cross-lang signatures
 PKI::init(JWKS_FILE);
 foreach (CROSS_LANGS as $lang) {
-    $path = __DIR__ . "/fixtures/sig_{$lang}.json";
+    $path = __DIR__ . "/../fixtures/sig_{$lang}.json";
     if (!file_exists($path)) continue;
     $rec = json_decode(file_get_contents($path), true);
     if (!PKI::verify($rec['message'], $rec['signature'])) {

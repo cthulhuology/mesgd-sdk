@@ -1,12 +1,16 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/vendor/autoload.php';
+use phpseclib3\Crypt\PublicKeyLoader;
 
 class PKI {
     private static $file = 'pki_keys.json';
     private static $signingPriv = null;
     private static $signingPub  = null;
-    private static $encryptingPriv = null;
-    private static $encryptingPub  = null;
+    private static $encryptingPriv    = null;
+    private static $encryptingPub     = null;
+    private static $encryptingPrivSec = null; // phpseclib RSA (SHA-256/MGF1-SHA-256)
+    private static $encryptingPubSec  = null;
 
     private static function b64url(string $bin): string {
         return rtrim(strtr(base64_encode($bin), '+/', '-_'), '=');
@@ -57,6 +61,12 @@ class PKI {
 
     private static function derContextTag(int $n, string $content, bool $constructed = true): string {
         return chr(($constructed ? 0xa0 : 0x80) | $n) . self::derLen(strlen($content)) . $content;
+    }
+
+    private static function setupPhpseclibRsa(string $pem): void {
+        $priv = PublicKeyLoader::load($pem)->withHash('sha256')->withMGFHash('sha256');
+        self::$encryptingPrivSec = $priv;
+        self::$encryptingPubSec  = $priv->getPublicKey()->withHash('sha256')->withMGFHash('sha256');
     }
 
     private static function ecPkcs8Der(string $d_bytes, string $point_bytes): string {
@@ -141,6 +151,7 @@ class PKI {
         self::$encryptingPriv = openssl_pkey_get_private($pemRsa);
         $rsaDetails = openssl_pkey_get_details(self::$encryptingPriv);
         self::$encryptingPub = openssl_pkey_get_public($rsaDetails['key']);
+        self::setupPhpseclibRsa($pemRsa);
     }
 
     public static function init(string $path = ''): void {
@@ -168,6 +179,8 @@ class PKI {
         self::$encryptingPriv = $rsaKey;
         $rsaDetails = openssl_pkey_get_details($rsaKey);
         self::$encryptingPub = openssl_pkey_get_public($rsaDetails['key']);
+        openssl_pkey_export($rsaKey, $rsaPem);
+        self::setupPhpseclibRsa($rsaPem);
 
         file_put_contents($path, json_encode(self::exportJWKS()));
     }
@@ -248,13 +261,10 @@ class PKI {
     }
 
     public static function encrypt(string $message): string {
-        openssl_public_encrypt($message, $encrypted, self::$encryptingPub, OPENSSL_PKCS1_OAEP_PADDING);
-        return base64_encode($encrypted);
+        return base64_encode(self::$encryptingPubSec->encrypt($message));
     }
 
     public static function decrypt(string $ciphertextB64): string {
-        $ciphertext = base64_decode($ciphertextB64);
-        openssl_private_decrypt($ciphertext, $decrypted, self::$encryptingPriv, OPENSSL_PKCS1_OAEP_PADDING);
-        return $decrypted;
+        return self::$encryptingPrivSec->decrypt(base64_decode($ciphertextB64));
     }
 }
