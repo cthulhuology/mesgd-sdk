@@ -1,7 +1,7 @@
 
-.PHONY: test test-erlang test-python test-javascript test-ruby clean
+.PHONY: tests test-erlang test-python test-javascript test-ruby test-rust clean
 
-test: test-erlang test-python test-javascript test-ruby
+tests: test-erlang test-python test-javascript test-ruby test-rust
 
 test-erlang:
 	@echo "=== Erlang ==="
@@ -19,6 +19,10 @@ test-javascript:
 test-ruby:
 	@echo "=== Ruby ==="
 	ruby test/test_pki.rb
+
+test-rust:
+	@echo "=== Rust ==="
+	cargo test --tests 2>&1
 
 clean:
 	rm -f *.beam test/*.beam
