@@ -4,7 +4,7 @@ use std::fs;
 const JWKS_FILE: &str = "../fixtures/jwks.json";
 const GEN_FILE: &str  = "../fixtures/test_rust.json";
 const SIG_OUT: &str   = "../fixtures/sig_rust.json";
-const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby", "go", "c", "java"];
+const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby", "go", "c", "java", "csharp"];
 
 #[test]
 fn test_sign_verify_roundtrip() {

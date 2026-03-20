@@ -3,151 +3,235 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
-public static class PKI
+/*
+ * pki.cs — PKI implementation for mesgd-sdk
+ *
+ * Keys:    EC P-256 (sign/verify) + RSA-2048 (encrypt/decrypt)
+ * Storage: flat JWK array in pki_keys.json
+ * Sign:    ECDSA SHA-256  →  {"r":"<b64url>","s":"<b64url>"}
+ * Encrypt: RSA-OAEP, hash=SHA-256, MGF1=SHA-256  →  standard base64
+ */
+static class PKI
 {
-    private static readonly string FILE = "pki_keys.bin";
-    private static ECDsa? signingPriv;
-    private static ECDsa? signingPub;
-    private static RSA? encryptingPriv;
-    private static RSA? encryptingPub;
+    static ECDsa? _signingPriv;
+    static ECDsa? _signingPub;
+    static RSA?   _encryptingPriv;
+    static RSA?   _encryptingPub;
 
-    public static void Init()
+    static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+
+    /* ── base64url helpers ──────────────────────────────────────────── */
+
+    static string B64Url(byte[] data) =>
+        Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    static byte[] B64UrlDec(string s)
     {
-        if (File.Exists(FILE))
+        string p = s.Replace('-', '+').Replace('_', '/');
+        p += (p.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
+        return Convert.FromBase64String(p);
+    }
+
+    /* Pad or trim a byte array to exactly `size` bytes (big-endian) */
+    static byte[] PadTo(byte[] data, int size)
+    {
+        if (data.Length == size) return data;
+        if (data.Length > size)
         {
-            byte[] data = File.ReadAllBytes(FILE);
-            using var ms = new MemoryStream(data);
-            using var br = new BinaryReader(ms);
-
-            // Load signing private key (PKCS8)
-            int len = br.ReadInt32();
-            byte[] privEcBytes = br.ReadBytes(len);
-            signingPriv = ECDsa.Create();
-            signingPriv.ImportPKCS8PrivateKey(privEcBytes, out _);
-
-            // Load signing public key (SubjectPublicKeyInfo)
-            len = br.ReadInt32();
-            byte[] pubEcBytes = br.ReadBytes(len);
-            signingPub = ECDsa.Create();
-            signingPub.ImportSubjectPublicKeyInfo(pubEcBytes, out _);
-
-            // Load encrypting private key (PKCS8)
-            len = br.ReadInt32();
-            byte[] privRsaBytes = br.ReadBytes(len);
-            encryptingPriv = RSA.Create();
-            encryptingPriv.ImportPKCS8PrivateKey(privRsaBytes, out _);
-
-            // Load encrypting public key (SubjectPublicKeyInfo)
-            len = br.ReadInt32();
-            byte[] pubRsaBytes = br.ReadBytes(len);
-            encryptingPub = RSA.Create();
-            encryptingPub.ImportSubjectPublicKeyInfo(pubRsaBytes, out _);
+            // trim leading zero bytes
+            var t = new byte[size];
+            Buffer.BlockCopy(data, data.Length - size, t, 0, size);
+            return t;
         }
+        var out_ = new byte[size];
+        Buffer.BlockCopy(data, 0, out_, size - data.Length, data.Length);
+        return out_;
+    }
+
+    /* ── JWK export ─────────────────────────────────────────────────── */
+
+    static JsonObject JwkEcPub()
+    {
+        var p = _signingPriv!.ExportParameters(false);
+        return new JsonObject
+        {
+            ["kty"]     = "EC",
+            ["crv"]     = "P-256",
+            ["use"]     = "sig",
+            ["key_ops"] = new JsonArray { "verify" },
+            ["x"]       = B64Url(p.Q.X!),
+            ["y"]       = B64Url(p.Q.Y!),
+        };
+    }
+
+    static JsonObject JwkEcPriv()
+    {
+        var p = _signingPriv!.ExportParameters(true);
+        return new JsonObject
+        {
+            ["kty"]     = "EC",
+            ["crv"]     = "P-256",
+            ["use"]     = "sig",
+            ["key_ops"] = new JsonArray { "sign" },
+            ["x"]       = B64Url(p.Q.X!),
+            ["y"]       = B64Url(p.Q.Y!),
+            ["d"]       = B64Url(p.D!),
+        };
+    }
+
+    static JsonObject JwkRsaPub()
+    {
+        var p = _encryptingPriv!.ExportParameters(false);
+        return new JsonObject
+        {
+            ["kty"]     = "RSA",
+            ["use"]     = "enc",
+            ["key_ops"] = new JsonArray { "decrypt" },
+            ["n"]       = B64Url(p.Modulus!),
+            ["e"]       = B64Url(p.Exponent!),
+        };
+    }
+
+    static JsonObject JwkRsaPriv()
+    {
+        var p = _encryptingPriv!.ExportParameters(true);
+        return new JsonObject
+        {
+            ["kty"]     = "RSA",
+            ["use"]     = "enc",
+            ["key_ops"] = new JsonArray { "encrypt" },
+            ["n"]       = B64Url(p.Modulus!),
+            ["e"]       = B64Url(p.Exponent!),
+            ["d"]       = B64Url(p.D!),
+            ["p"]       = B64Url(p.P!),
+            ["q"]       = B64Url(p.Q!),
+            ["dp"]      = B64Url(p.DP!),
+            ["dq"]      = B64Url(p.DQ!),
+            ["qi"]      = B64Url(p.InverseQ!),
+        };
+    }
+
+    /* ── JWK import ─────────────────────────────────────────────────── */
+
+    static bool HasOp(JsonElement jwk, string op)
+    {
+        if (!jwk.TryGetProperty("key_ops", out var ops)) return false;
+        foreach (var item in ops.EnumerateArray())
+            if (item.GetString() == op) return true;
+        return false;
+    }
+
+    static void ImportEcPriv(JsonElement jwk)
+    {
+        byte[] x = B64UrlDec(jwk.GetProperty("x").GetString()!);
+        byte[] y = B64UrlDec(jwk.GetProperty("y").GetString()!);
+        byte[] d = B64UrlDec(jwk.GetProperty("d").GetString()!);
+
+        var ecParams = new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint { X = PadTo(x, 32), Y = PadTo(y, 32) },
+            D = PadTo(d, 32),
+        };
+        _signingPriv = ECDsa.Create(ecParams);
+        _signingPub  = ECDsa.Create(_signingPriv.ExportParameters(false));
+    }
+
+    static void ImportRsaPriv(JsonElement jwk)
+    {
+        // RSA-2048: modulus=256 bytes, primes=128 bytes each
+        var rsaParams = new RSAParameters
+        {
+            Modulus  = PadTo(B64UrlDec(jwk.GetProperty("n").GetString()!),  256),
+            Exponent =       B64UrlDec(jwk.GetProperty("e").GetString()!),
+            D        = PadTo(B64UrlDec(jwk.GetProperty("d").GetString()!),  256),
+            P        = PadTo(B64UrlDec(jwk.GetProperty("p").GetString()!),  128),
+            Q        = PadTo(B64UrlDec(jwk.GetProperty("q").GetString()!),  128),
+            DP       = PadTo(B64UrlDec(jwk.GetProperty("dp").GetString()!), 128),
+            DQ       = PadTo(B64UrlDec(jwk.GetProperty("dq").GetString()!), 128),
+            InverseQ = PadTo(B64UrlDec(jwk.GetProperty("qi").GetString()!), 128),
+        };
+        _encryptingPriv = RSA.Create();
+        _encryptingPriv.ImportParameters(rsaParams);
+        _encryptingPub  = RSA.Create();
+        _encryptingPub.ImportParameters(new RSAParameters
+        {
+            Modulus  = rsaParams.Modulus,
+            Exponent = rsaParams.Exponent,
+        });
+    }
+
+    /* ── public API ─────────────────────────────────────────────────── */
+
+    public static string Export()
+    {
+        var arr = new JsonArray { JwkEcPub(), JwkRsaPub(), JwkEcPriv(), JwkRsaPriv() };
+        return arr.ToJsonString();
+    }
+
+    public static void Import(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        foreach (var jwk in doc.RootElement.EnumerateArray())
+        {
+            string kty = jwk.GetProperty("kty").GetString()!;
+            if (kty == "EC"  && HasOp(jwk, "sign"))    ImportEcPriv(jwk);
+            if (kty == "RSA" && HasOp(jwk, "encrypt")) ImportRsaPriv(jwk);
+        }
+    }
+
+    public static void Generate(string path)
+    {
+        _signingPriv    = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        _signingPub     = ECDsa.Create(_signingPriv.ExportParameters(false));
+        _encryptingPriv = RSA.Create(2048);
+        _encryptingPub  = RSA.Create();
+        _encryptingPub.ImportParameters(_encryptingPriv.ExportParameters(false));
+        File.WriteAllText(path, Export(), Utf8NoBom);
+    }
+
+    public static void Init(string path)
+    {
+        if (File.Exists(path))
+            Import(File.ReadAllText(path, Utf8NoBom));
         else
-        {
-            // Generate signing keypair (ECDSA P-256)
-            signingPriv = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            signingPub = ECDsa.Create();
-            signingPub.ImportSubjectPublicKeyInfo(signingPriv.ExportSubjectPublicKeyInfo(), out _);
-
-            // Generate encrypting keypair (RSA 2048)
-            encryptingPriv = RSA.Create(2048);
-            encryptingPub = RSA.Create();
-            encryptingPub.ImportSubjectPublicKeyInfo(encryptingPriv.ExportSubjectPublicKeyInfo(), out _);
-
-            // Save to file
-            using var fs = new FileStream(FILE, FileMode.Create);
-            using var bw = new BinaryWriter(fs);
-
-            // Save signing private
-            byte[] signingPrivBytes = signingPriv.ExportPKCS8PrivateKey();
-            bw.Write(signingPrivBytes.Length);
-            bw.Write(signingPrivBytes);
-
-            // Save signing public
-            byte[] signingPubBytes = signingPub.ExportSubjectPublicKeyInfo();
-            bw.Write(signingPubBytes.Length);
-            bw.Write(signingPubBytes);
-
-            // Save encrypting private
-            byte[] encryptingPrivBytes = encryptingPriv.ExportPKCS8PrivateKey();
-            bw.Write(encryptingPrivBytes.Length);
-            bw.Write(encryptingPrivBytes);
-
-            // Save encrypting public
-            byte[] encryptingPubBytes = encryptingPub.ExportSubjectPublicKeyInfo();
-            bw.Write(encryptingPubBytes.Length);
-            bw.Write(encryptingPubBytes);
-        }
+            Generate(path);
     }
 
-    private static string Base64UrlEncode(byte[] data)
-    {
-        return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    }
-
-    private static byte[] Base64UrlDecode(string s)
-    {
-        string padded = s.Replace('-', '+').Replace('_', '/');
-        padded += (padded.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
-        return Convert.FromBase64String(padded);
-    }
-
-    // Sign returns a JSON object {"r":"<base64url>","s":"<base64url>"} mirroring JWK key encoding
     public static string Sign(string message)
     {
-        ArgumentNullException.ThrowIfNull(signingPriv);
-        byte[] data = Encoding.UTF8.GetBytes(message);
-        // SignData returns IEEE P1363: R (32 bytes) || S (32 bytes) for P-256
-        byte[] p1363 = signingPriv.SignData(data, HashAlgorithmName.SHA256);
-        string r = Base64UrlEncode(p1363[..32]);
-        string s = Base64UrlEncode(p1363[32..]);
+        byte[] data  = Encoding.UTF8.GetBytes(message);
+        byte[] p1363 = _signingPriv!.SignData(data, HashAlgorithmName.SHA256);
+        string r = B64Url(p1363[..32]);
+        string s = B64Url(p1363[32..]);
         return $"{{\"r\":\"{r}\",\"s\":\"{s}\"}}";
     }
 
-    // Verify accepts {"r":"<base64url>","s":"<base64url>"}
-    public static bool Verify(string message, string signatureJson)
+    public static bool Verify(string message, string sigJson)
     {
-        ArgumentNullException.ThrowIfNull(signingPub);
         byte[] data = Encoding.UTF8.GetBytes(message);
-        using var doc = JsonDocument.Parse(signatureJson);
-        byte[] r = Base64UrlDecode(doc.RootElement.GetProperty("r").GetString()!);
-        byte[] s = Base64UrlDecode(doc.RootElement.GetProperty("s").GetString()!);
-        // Reconstruct P1363: each component right-aligned in 32 bytes
+        using var doc = JsonDocument.Parse(sigJson);
+        byte[] r = B64UrlDec(doc.RootElement.GetProperty("r").GetString()!);
+        byte[] s = B64UrlDec(doc.RootElement.GetProperty("s").GetString()!);
         byte[] p1363 = new byte[64];
         Buffer.BlockCopy(r, 0, p1363, 32 - r.Length, r.Length);
         Buffer.BlockCopy(s, 0, p1363, 64 - s.Length, s.Length);
-        return signingPub.VerifyData(data, p1363, HashAlgorithmName.SHA256);
+        return _signingPub!.VerifyData(data, p1363, HashAlgorithmName.SHA256);
     }
 
     public static string Encrypt(string message)
     {
-        ArgumentNullException.ThrowIfNull(encryptingPub);
-        byte[] data = Encoding.UTF8.GetBytes(message);
-        byte[] ciphertext = encryptingPub.Encrypt(data, RSAEncryptionPadding.OaepSHA256);
-        return Convert.ToBase64String(ciphertext);
+        byte[] ct = _encryptingPub!.Encrypt(
+            Encoding.UTF8.GetBytes(message), RSAEncryptionPadding.OaepSHA256);
+        return Convert.ToBase64String(ct);
     }
 
-    public static string Decrypt(string ciphertextB64)
+    public static string Decrypt(string ctB64)
     {
-        ArgumentNullException.ThrowIfNull(encryptingPriv);
-        byte[] ciphertext = Convert.FromBase64String(ciphertextB64);
-        byte[] plaintext = encryptingPriv.Decrypt(ciphertext, RSAEncryptionPadding.OaepSHA256);
-        return Encoding.UTF8.GetString(plaintext);
-    }
-}
-
-class Program
-{
-    static void Main()
-    {
-        PKI.Init();
-        string sig = PKI.Sign("Hello World");
-        Console.WriteLine("Signature: " + sig);
-        Console.WriteLine("Verify: " + PKI.Verify("Hello World", sig)); // True
-        string enc = PKI.Encrypt("Secret message");
-        Console.WriteLine("Encrypted: " + enc);
-        Console.WriteLine("Decrypted: " + PKI.Decrypt(enc)); // Secret message
+        byte[] pt = _encryptingPriv!.Decrypt(
+            Convert.FromBase64String(ctB64), RSAEncryptionPadding.OaepSHA256);
+        return Encoding.UTF8.GetString(pt);
     }
 }

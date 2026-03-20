@@ -5,7 +5,7 @@
 -define(JWKS_FILE,  "../fixtures/jwks.json").
 -define(GEN_FILE,   "../fixtures/test_erlang.json").
 -define(SIG_OUT,    "../fixtures/sig_erlang.json").
--define(CROSS_LANGS, ["python", "javascript", "ruby", "rust", "go", "c", "java"]).
+-define(CROSS_LANGS, ["python", "javascript", "ruby", "rust", "go", "c", "java", "csharp"]).
 
 %%%-------------------------------------------------------------------
 %%% Setup / teardown

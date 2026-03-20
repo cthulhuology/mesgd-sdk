@@ -6,7 +6,7 @@ FIXTURES    = File.join(__dir__, '..', 'fixtures')
 JWKS_FILE   = File.join(FIXTURES, 'jwks.json')
 GEN_FILE    = File.join(FIXTURES, 'test_ruby.json')
 SIG_OUT     = File.join(FIXTURES, 'sig_ruby.json')
-CROSS_LANGS = %w[erlang python javascript rust go c java].freeze
+CROSS_LANGS = %w[erlang python javascript rust go c java csharp].freeze
 
 class TestPKI < Minitest::Test
   def setup

@@ -15,7 +15,7 @@ public class PKITest {
     private static final String SIG_OUT   = FIXTURES + "/sig_java.json";
 
     private static final String[] CROSS_LANGS =
-        {"erlang", "python", "javascript", "ruby", "rust", "go", "c"};
+        {"erlang", "python", "javascript", "ruby", "rust", "go", "c", "csharp"};
 
     @BeforeEach
     void loadSharedKeys() throws Exception {

@@ -23,6 +23,11 @@ c/test_pki_dbg
 # Java
 java/*.class
 
+# C#
+csharp/bin/
+csharp/obj/
+csharp/publish/
+
 # Editor / OS
 *.un~
 Makefile~

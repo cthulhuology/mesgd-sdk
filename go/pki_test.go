@@ -12,7 +12,7 @@ const JWKS_FILE = "../fixtures/jwks.json"
 const GEN_FILE = "../fixtures/test_go.json"
 const SIG_OUT = "../fixtures/sig_go.json"
 
-var CROSS_LANGS = []string{"erlang", "python", "javascript", "ruby", "rust", "c", "java"}
+var CROSS_LANGS = []string{"erlang", "python", "javascript", "ruby", "rust", "c", "java", "csharp"}
 
 var globalPKI *pki.PKI
 
