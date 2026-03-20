@@ -20,6 +20,9 @@ go/go.sum
 c/test_pki
 c/test_pki_dbg
 
+# Java
+java/*.class
+
 # Editor / OS
 *.un~
 Makefile~

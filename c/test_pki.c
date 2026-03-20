@@ -161,6 +161,7 @@ void test_verify_javascript(void) { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)
 void test_verify_ruby(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("ruby"); }
 void test_verify_rust(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("rust"); }
 void test_verify_go(void)         { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("go"); }
+void test_verify_java(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("java"); }
 
 /* ── main ───────────────────────────────────────────────────────────── */
 
@@ -180,6 +181,7 @@ int main(void) {
     RUN_TEST(test_verify_ruby);
     RUN_TEST(test_verify_rust);
     RUN_TEST(test_verify_go);
+    RUN_TEST(test_verify_java);
 
     return UNITY_END();
 }
