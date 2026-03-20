@@ -11,7 +11,7 @@ const SIG_OUT    = join(FIXTURES, 'sig_javascript.json');
 const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go'];
 
 // Use a test-local localStorage so tests don't pollute or consume the shared store
-global.localStorage = new LocalStorage(join(FIXTURES, 'ls_javascript'));
+global.localStorage = new LocalStorage(join(FIXTURES, 'storage'));
 
 import { PKI } from './pki.mjs';
 
