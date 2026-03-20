@@ -15,22 +15,32 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
+## Infrastructure ✓ COMPLETE
+
+- [x] Per-language directories: `erlang/`, `go/`, `python/`, `javascript/`, `ruby/`, `rust/`, `c/`, `cpp/`, `csharp/`, `haskell/`, `java/`, `lua/`, `ocaml/`, `perl/`, `swift/`, `forth/`, `php/`
+- [x] Shared fixture directory `fixtures/` with `jwks.json` (stable) and `storage/` (JS LocalStorage)
+- [x] `sig_*.json` and `test_*.json` excluded from git (regenerated each test run)
+- [x] `.gitignore` covering beams, `__pycache__`, `node_modules/`, `rust/target/`, generated fixtures
+- [x] `Makefile` with `deps`, `tests`, `clean` targets; `make clean && make tests` works from scratch
+- [x] `deps-python` (pip + requirements.txt), `deps-javascript` (bun install + bun.lock), `deps-rust` (cargo fetch)
+- [x] Cross-language interop verified: all 6 working languages sign and verify each other's fixtures
+
 ## Cross-Language Interoperability (resolve before or alongside per-file work)
 
 - [x] [COMPAT] Canonicalise ECDSA signature wire format to JWK-style JSON
       (`{"r":"<base64url>","s":"<base64url>"}`) across all implementations;
-      done for Erlang, Python, JavaScript, Ruby, Rust; C# and others pending
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go; C# and others pending
 - [x] [COMPAT] Verify that every implementation uses SHA-256 for both the OAEP
-      digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust;
+      digest **and** the MGF1 digest; done for Erlang, Python, JavaScript, Ruby, Rust, Go;
       PHP has no native solution — `OPENSSL_PKCS1_OAEP_PADDING` is hardwired to SHA-1 MGF1;
       requires phpseclib 3.0 for true interoperability (documented in pki.php)
 - [x] [COMPAT] Verify that all JWK component values (x, y, d, n, e, p, q, dp, dq,
       qi) are encoded as base64url (no padding, `-` and `_` not `+` and `/`);
-      done for Erlang, Python, JavaScript, Ruby, Rust
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go
 - [x] [COMPAT] Verify that all implementations store keys as a flat JWK array
       (not a named dict); keys are identified by `use` (`"sig"` / `"enc"`) and
       `key_ops` (`["sign"]` / `["verify"]` / `["encrypt"]` / `["decrypt"]`);
-      done for Erlang, Python, JavaScript, Ruby, Rust
+      done for Erlang, Python, JavaScript, Ruby, Rust, Go
 
 ---
 
@@ -75,13 +85,13 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `encryptWith(pubJwk, msg)`
 - [ ] [NEW]  Add `register(mesgdPubJwk)`
 
-### `test/test_pki.erl`
+### `erlang/test_pki.erl` ✓ COMPLETE
 - [x] [IMPL] Change `?KEY_FILE` to `"test/fixtures/jwks.json"` (shared fixture)
 - [x] [TEST] Add test for `generate/1` – file created, array of 4 JWKs with correct ops
 - [x] [TEST] Add test for `export/4` – round-trip generate → import → sign → verify
 - [x] [TEST] Cross-language signature write and verify tests
 
-### `test/test_pki.py`
+### `python/test_pki.py` ✓ COMPLETE
 - [x] [IMPL] Remove duplicated inline `PKI` class; add `from pki import PKI`
 - [x] [TEST] Round-trip sign/verify, encrypt/decrypt
 - [x] [TEST] test_generate_creates_json_file – structural JSON check, array of 4
@@ -95,7 +105,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.c` / `test/test_pki.c` ← **next batch**
+## `pki.c` / `c/test_pki.c` ← **next**
 
 ### Implementation
 - [ ] [IMPL] Add `base64url_encode(buf, len) -> char*` helper (replaces `+/` with `-_`, strips `=`)
@@ -112,7 +122,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `pki_register(const char *mesgd_pub_jwk_json, char **out_b64)`
 - [ ] [IMPL] Wrap `main()` under `#ifdef PKI_DEMO`
 
-### Tests (`test/test_pki.c`)
+### Tests (`c/test_pki.c`)
 - [ ] [NEW]  Create test file; add `#include` for Unity or custom `ASSERT` macros
 - [ ] [TEST] `test_init` – `pki_init()` succeeds; key pointers are non-NULL
 - [ ] [TEST] `test_sign_verify` – sign "Hello World"; verify returns 1
@@ -129,7 +139,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.cc` / `test/test_pki.cc`
+## `pki.cc` / `cpp/test_pki.cc`
 
 ### Implementation
 - [ ] [IMPL] Fix `PEM_read_PrivateKey` / `PEM_read_PUBKEY` calls: replace `std::ifstream` usage
@@ -146,7 +156,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `PKIImpl::reg(const nlohmann::json& mesgd_pub_jwk)` (avoids reserved word)
 - [ ] [IMPL] Wrap `main()` under `#ifdef PKI_DEMO`
 
-### Tests (`test/test_pki.cc`)
+### Tests (`cpp/test_pki.cc`)
 - [ ] [NEW]  Create test file; add Google Test (`gtest`) dependency
 - [ ] [TEST] `InitLoadsOrGeneratesKeys` – `impl.init()` leaves all four keys non-null
 - [ ] [TEST] `SignVerifyRoundtrip` – sign/verify succeeds for same message
@@ -162,7 +172,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.cs` / `test/PKITest.cs`
+## `pki.cs` / `csharp/PKITest.cs`
 
 ### Implementation
 - [x] [IMPL] Add `using System.Text.Json`
@@ -178,7 +188,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `public static string Register(string mesgdPubJwkJson)`
 - [ ] [IMPL] Remove or conditionally compile `Program.Main()`
 
-### Tests (`test/PKITest.cs`)
+### Tests (`csharp/PKITest.cs`)
 - [ ] [NEW]  Create xUnit or NUnit test class
 - [ ] [TEST] `Init_LoadsOrGeneratesKeys` – `PKI.Init()` does not throw
 - [ ] [TEST] `Sign_Verify_Roundtrip` – sign/verify succeeds
@@ -195,7 +205,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.hs` / `test/PKISpec.hs`
+## `pki.hs` / `haskell/PKISpec.hs`
 
 ### Implementation
 - [ ] [IMPL] Replace `cryptonite` with `crypton` in cabal file
@@ -216,7 +226,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `encryptWith :: PublicKey -> ByteString -> IO ByteString`
 - [ ] [NEW]  Add `register :: PublicKey -> Keys -> IO ByteString`
 
-### Tests (`test/PKISpec.hs`)
+### Tests (`haskell/PKISpec.hs`)
 - [ ] [NEW]  Create HSpec spec file
 - [ ] [TEST] `initPKI loads or generates keys without error`
 - [ ] [TEST] `sign then verify succeeds for same message`
@@ -232,7 +242,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.java` / `test/PKITest.java`
+## `pki.java` / `java/PKITest.java`
 
 ### Implementation
 - [ ] [IMPL] Remove unused imports (`EncryptedPrivateKeyInfo`, `SecretKeyFactory`,
@@ -251,7 +261,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `public static String register(Map<String, Object> mesgdPubJwk) throws Exception`
 - [ ] [IMPL] Remove `main()` from production class (or move to a separate demo class)
 
-### Tests (`test/PKITest.java`)
+### Tests (`java/PKITest.java`)
 - [ ] [NEW]  Create JUnit 5 test class
 - [ ] [TEST] `@Test initLoadsOrGeneratesKeys` – `PKI.init()` does not throw
 - [ ] [TEST] `@Test signVerifyRoundtrip` – signed message verifies correctly
@@ -269,7 +279,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.lua` / `test/test_pki.lua`
+## `pki.lua` / `lua/test_pki.lua`
 
 ### Implementation
 - [ ] [IMPL] Fix `PKI.init()`: replace all incorrect `openssl.*` calls with correct
@@ -287,7 +297,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `PKI.encrypt_with(pub_jwk_tbl, message)`
 - [ ] [NEW]  Add `PKI.register(mesgd_pub_jwk_tbl)`
 
-### Tests (`test/test_pki.lua`)
+### Tests (`lua/test_pki.lua`)
 - [ ] [NEW]  Create busted spec file (`describe` / `it` blocks)
 - [ ] [TEST] `it("init generates or loads keys")` – `PKI.init()` leaves all four keys set
 - [ ] [TEST] `it("sign/verify round-trip")` – sign "Hello World"; verify passes
@@ -303,7 +313,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.ml` / `test/test_pki.ml`
+## `pki.ml` / `ocaml/test_pki.ml`
 
 ### Implementation
 - [ ] [IMPL] Add `yojson` (or `ezjsonm`) and `base64` library dependencies to dune file
@@ -320,7 +330,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `val encrypt_with : Yojson.Safe.t -> string -> (string, string) result`
 - [ ] [NEW]  Add `val register : Yojson.Safe.t -> (string, string) result`
 
-### Tests (`test/test_pki.ml`)
+### Tests (`ocaml/test_pki.ml`)
 - [ ] [NEW]  Create Alcotest test file; add `alcotest` to dune dependencies
 - [ ] [TEST] `"init generates or loads keys"` – `init()` does not raise
 - [ ] [TEST] `"sign/verify round-trip"` – sign then verify same message returns `true`
@@ -336,7 +346,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.php` / `test/test_pki.php` ← **next batch**
+## `pki.php` / `php/test_pki.php` ← **next**
 
 ### Implementation
 - [ ] [IMPL] Add `declare(strict_types=1)` and `<?php` header; set minimum PHP to 8.0
@@ -354,7 +364,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `public static function register(array $mesgdPubJwk): string`
 - [ ] [IMPL] Guard top-level usage code with `if (PHP_SAPI === 'cli')` block
 
-### Tests (`test/PKITest.php`)
+### Tests (`php/test_pki.php`)
 - [ ] [NEW]  Create PHPUnit test class extending `PHPUnit\Framework\TestCase`
 - [ ] [TEST] `testInitLoadsOrGeneratesKeys` – `PKI::init()` does not throw
 - [ ] [TEST] `testSignVerifyRoundtrip` – sign/verify returns true
@@ -370,7 +380,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.pl` / `test/test_pki.t`
+## `pki.pl` / `perl/test_pki.t`
 
 ### Implementation
 - [ ] [IMPL] Replace `Storable` with `JSON::PP` (or `JSON::XS`) for `pki_keys.json`
@@ -387,7 +397,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `PKI::encrypt_with(\%pub_jwk, $message)`
 - [ ] [NEW]  Add `PKI::register(\%mesgd_pub_jwk)`
 
-### Tests (`test/test_pki.t`)
+### Tests (`perl/test_pki.t`)
 - [ ] [NEW]  Create Test::More test file
 - [ ] [TEST] `ok(init(), 'init succeeds')`
 - [ ] [TEST] Sign/verify round-trip passes
@@ -403,7 +413,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.rb` / `test/test_pki.rb`
+## `pki.rb` / `ruby/test_pki.rb`
 
 ### Implementation
 - [x] [IMPL] Replace `Marshal.dump` / `Marshal.load` with `JSON.dump` / `JSON.parse`
@@ -418,7 +428,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `PKI.encrypt_with(pub_jwk_hash, message)`
 - [ ] [NEW]  Add `PKI.register(mesgd_pub_jwk_hash)`
 
-### Tests (`test/test_pki.rb`)
+### Tests (`ruby/test_pki.rb`)
 - [x] [IMPL] `require_relative '../pki'`; `setup` calls `PKI.init(JWKS_FILE)`
 - [x] [TEST] sign/verify roundtrip, encrypt/decrypt roundtrip
 - [x] [TEST] generate creates JSON file (structural check)
@@ -454,7 +464,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.swift` / `test/PKITests.swift`
+## `pki.swift` / `swift/PKITests.swift`
 
 ### Implementation
 - [ ] [IMPL] Remove `import CryptoKit` RSA usage; add `import Security` for RSA operations
@@ -480,7 +490,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [NEW]  Add `static func register(_ mesgdPubJwk: [String: Any]) throws -> String`
 - [ ] [IMPL] Add package comment documenting Linux RSA limitation (requires COpenSSL)
 
-### Tests (`test/PKITests.swift`)
+### Tests (`swift/PKITests.swift`)
 - [ ] [NEW]  Create XCTest test class
 - [ ] [TEST] `testSetupLoadsOrGeneratesKeys` – `PKI.setup()` does not throw
 - [ ] [TEST] `testSignVerifyRoundtrip` – sign/verify succeeds
@@ -496,7 +506,7 @@ by file; within each file, implementation tasks come before test tasks.
 
 ---
 
-## `pki.f` / `test/test_pki.f`
+## `pki.f` / `forth/test_pki.f`
 
 > JWK export/import and the `register` workflow are **out of scope** for the Forth
 > implementation.  This section covers the working-demo level target only.
@@ -520,7 +530,7 @@ by file; within each file, implementation tasks come before test tasks.
 - [ ] [IMPL] Add prominent header comment documenting that JWK, export, import,
       `encrypt_with`, and `register` are out of scope for the Forth implementation
 
-### Tests (`test/test_pki.f`)
+### Tests (`forth/test_pki.f`)
 - [ ] [NEW]  Create test file with custom `ASSERT` / `ASSERT-EQUAL` words
 - [ ] [TEST] `rsa-init` – completes without aborting; subsequent call loads same key
 - [ ] [TEST] `encrypt` then `decrypt` – recovered plaintext matches input
