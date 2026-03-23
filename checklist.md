@@ -65,12 +65,12 @@ Every implementation must match this exactly to achieve cross-language interoper
 
 ## Previously Planned (from original plan.md — included here for unified tracking)
 
-### `pki.erl`
+### `pki.erl` ✓ COMPLETE
 - [x] [IMPL] Add `generate/1` function
 - [x] [IMPL] Fix typo in generate: `PrivS` → `PrivE` in returned tuple
 - [x] [IMPL] Update `-export` list to include `generate/1`
 - [x] [IMPL] Refactor `init/1` to call `generate(KeyFile)` instead of inlining key-gen
-- [ ] [IMPL] Add MIT No Attribution license header
+- [x] [IMPL] Add MIT license header
 
 ### `pki.go` ✓ COMPLETE
 - [x] [IMPL] JWK JSON serialisation (no PEM, no gob); flat 4-key array
@@ -645,7 +645,7 @@ These are new files to be created in each language (referenced in the original p
 
 | Language | Status | Remaining open items |
 |----------|--------|----------------------|
-| Erlang | ✓ done | license header |
+| Erlang | ✓ done | none |
 | Go | ✓ done | `EncryptWith`, `Register` |
 | Python | ✓ done | `encrypt_with`, `register` |
 | JavaScript | ✓ done | `encryptWith`, `register` |
