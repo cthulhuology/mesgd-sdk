@@ -9,7 +9,6 @@ Existing PKI APIs and key-file formats are preserved.
 
 | Language | Module | HTTP transport | Test coverage |
 |---|---|---|---|
-| Dart | `dart/lib/auth.dart` — `AuthClient` | Built-in verified HTTPS | Contract tests, including a loopback TLS check |
 | Python | `python/auth.py` — `AuthClient` | Built-in verified HTTPS | Contract and live HTTPS tests |
 | JavaScript | `javascript/auth.mjs` — `AuthClient` | Browser/Node fetch | Contract and live HTTPS tests |
 | Erlang | `erlang/mesgd_auth_client.erl` | Built-in httpc HTTPS | Contract and live HTTPS tests |
@@ -17,6 +16,7 @@ Existing PKI APIs and key-file formats are preserved.
 | Ruby | `ruby/auth.rb` — `Mesgd::AuthClient` | Built-in Net::HTTP HTTPS | Contract and live HTTPS tests |
 | PHP | `php/auth.php` — `MesgdAuthClient` | Built-in HTTPS streams | Contract and live HTTPS tests |
 | C | `c/auth.h`, `auth.c`, `auth_curl.h`, `auth_curl.c` | libcurl or callback | Contract and live HTTPS tests |
+| Dart | `dart/lib/auth.dart` — `AuthClient` | Built-in `dart:io` HTTPS | Contract tests and a loopback TLS check; not in `test-auth-live` |
 | C++ | `cpp/auth.hpp` — `mesgd::AuthClient` | C libcurl bridge or callback | Contract tests; shares C transport |
 | Rust | `mesgd_pki::auth::AuthClient` | Inject a `Transport` implementation | Contract tests |
 | Lua | `lua/auth.lua` | Inject a transport function | Contract tests |
@@ -29,13 +29,15 @@ Existing PKI APIs and key-file formats are preserved.
 | Haskell | `haskell/MesgdAuth.hs` | Inject `Transport` | Source provided; not included in the auth test runner |
 | Forth | `forth/auth.f` | Deferred JSON/HTTPS transport word | Source provided; not included in the auth test runner |
 
-Auth modules are independent of the experimental PKI implementations in the
-other language folders. Java/Kotlin use the existing org.json dependency;
-C# uses System.Text.Json; Swift uses Foundation; OCaml uses Yojson.Safe;
-Haskell uses aeson, containers and text. C/C++ use the bundled cJSON; compile
-`c/auth.c` and `3rd-party/cJSON/cJSON.c` into your application, and optionally
-`c/auth_curl.c` with libcurl. Rust reuses serde_json, without adding an HTTP
-crate. The OCaml `mesgd_auth` library is separate from its PKI library.
+Auth modules are independent of the PKI implementations in the other language
+folders. Java/Kotlin use the existing org.json dependency; C# uses
+System.Text.Json; Swift uses Foundation; OCaml uses Yojson.Safe; Haskell uses
+aeson, containers and text. C/C++ use the bundled cJSON; compile `c/auth.c` and
+`3rd-party/cJSON/cJSON.c` into your application, and optionally `c/auth_curl.c`
+with libcurl. Rust reuses serde_json, without adding an HTTP crate. Dart's
+auth client uses `dart:io` only; `pointycastle` is a dependency of the PKI
+library in the same package, not of auth. The OCaml `mesgd_auth` library is
+separate from its PKI library.
 
 ## Python example
 
@@ -157,7 +159,8 @@ transport(method, fixed_path, decoded_json_body_or_null, bearer_or_null)
 
 Use each language's declared signature: Go additionally returns an error;
 Rust returns Result; Erlang uses method atoms and `undefined`; Java uses Reply;
-C/C++ use cJSON pointers and return status; async clients return a promise/task.
+C/C++ use cJSON pointers and return status; Dart returns
+`Future<(int, Map<String, dynamic>)>`; other async clients return a promise or task.
 The transport must serialize the body as JSON, set Content-Type and the correct
 UTF-8 Content-Length, attach Authorization only when given a token, verify the
 server's TLS certificate/hostname, reject redirects, and apply finite timeouts.
@@ -173,22 +176,30 @@ accepts a list of DER CA certificates for a private CA without disabling checks.
 Go: `T, err := pki.HTTPSAuthTransport(origin)` and `client := pki.AuthClient{Transport:T}`.
 Ruby: `Mesgd::AuthClient.new(Mesgd::AuthClient.https_transport(origin, ca_file: path))`.
 PHP: `new MesgdAuthClient(MesgdAuthClient::httpsTransport(origin))`.
+Dart: `AuthClient(httpsTransport('https://mesgd.example.com'))`. Pass a
+`SecurityContext` to trust a private CA; certificate and hostname checks stay on.
 C: initialize `mesgd_auth_curl_config` with origin/CA, then
 `mesgd_auth client = {mesgd_auth_curl_transport, &config}`.
 
 ## Tests
 
 `make test-auth` runs the shared seven-operation contract, OTP preservation,
-private-key rejection, and error handling for the 12 language implementations included in the runner.
+private-key rejection, and error handling for 12 languages: Python, JavaScript,
+Ruby, PHP, Perl, Lua, Go, Rust, Erlang, C, C++, and Dart.
 It performs no network requests or dependency downloads. Missing tools are
-reported as skips; Rust dependencies must already be in the Cargo cache.
+reported as skips. Rust dependencies must already be in the Cargo cache. Dart
+packages must already be in the pub cache (`dart pub get`, also run by
+`make deps` and `make test-dart`).
 Use `python3 tests/test_auth.py --language python` to select a language.
-Seven additional adapters are not included in that runner and require separate validation.
+Seven adapters are source-only and are not in that runner: Java, C#, Kotlin,
+Swift, OCaml, Haskell, and Forth.
 
 `make test-auth-live` uses installed mesgd beams in `~/.beamer` and launches a
 short-lived server bound to loopback with temporary database, keys and a trusted
-localhost certificate. It tests the seven native HTTPS clients (Python, JS,
-Erlang, Go, Ruby, PHP and C), including successful key updates, bad/replayed OTPs,
-logout, recovery-code rotation and revoked sessions. Requires Erlang, OpenSSL,
-local language runtimes and libcurl development files for C. Everything it
-creates is under a temporary directory; it never targets a deployed service.
+localhost certificate. It tests the seven native HTTPS clients that have live
+drivers (Python, JavaScript, Erlang, Go, Ruby, PHP, and C), including successful
+key updates, bad/replayed OTPs, logout, recovery-code rotation and revoked
+sessions. Dart's built-in HTTPS client is checked by the contract runner against
+a loopback certificate and is not part of this live mesgd pass. Requires Erlang,
+OpenSSL, local language runtimes and libcurl development files for C. Everything
+it creates is under a temporary directory; it never targets a deployed service.

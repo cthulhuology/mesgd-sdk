@@ -17,7 +17,7 @@ Each connection owns one subscription path and one bearer. Incoming messages mat
 | Rust | `rust/mesgd.rs` | `mesgd::connect` | `Conn::send` | `Conn::on` | `Conn::recv` | `Conn::close` |
 | Erlang reference | `erlang/mesgd.erl` | `connect/1,2` | `send/2,3` | `on/3` | Connection process | `close/1` |
 
-The Go package is still named `pki` within module `mesgd-sdk`; applications may alias the import to `mesgd`. The Rust module is `mesgd_pki::mesgd`.
+The Dart library is package `mesgd` (`package:mesgd/mesgd.dart`). The Go package is still named `pki` within module `mesgd-sdk`; applications may alias the import to `mesgd`. The Rust module is `mesgd_pki::mesgd`.
 
 Per-function definitions, option types, and complete service/client programs are maintained in the mesgd documentation source under `docs/sdk/` in the mesgd repository and rendered into the mesgd.org static documentation:
 
@@ -30,11 +30,13 @@ Per-function definitions, option types, and complete service/client programs are
 - [Ruby](https://mesgd.org/docs/sdk/ruby.html)
 - [Rust](https://mesgd.org/docs/sdk/rust.html)
 
+Those pages cover C, Go, JavaScript, Python, Ruby, and Rust. Dart's interface is the table above and `dart/lib/transport.dart`; a mesgd.org page for it is not published yet.
+
 ## Wire contract
 
 Connect to `wss://HOST[:PORT]/<subscription-pattern>`. Publish a JSON text frame with visible routing fields. A subscriber at `/to=service` receives a message whose top-level `to` equals `service`. The `type` field chooses the local callback; `body` carries application data.
 
-Authentication travels as the second `json` subprotocol value or as an HTTP bearer header where the underlying client permits it. The current broker's subprotocol parsing requires the exact `json, TOKEN` spacing, and some WebSocket header lookups are case-sensitive. The complete JavaScript program injects a `ws` adapter that sends `Authorization: Bearer TOKEN` and selects only `json`, avoiding that incompatibility. The unmodified module also imports Node filesystem code through PKI, so it is not directly browser-loadable.
+Authentication travels as the second `json` subprotocol value or as an HTTP bearer header where the underlying client permits it. The current broker's subprotocol parsing requires the exact `json, TOKEN` spacing, and some WebSocket header lookups are case-sensitive. Dart sends `Sec-WebSocket-Protocol: json, TOKEN` by default. `Mesgd.connect(..., bearerHeader: true)` sends `Authorization: Bearer TOKEN` and offers only `json`. The complete JavaScript program injects a `ws` adapter that does the same bearer-header selection, avoiding that incompatibility. The unmodified JavaScript module also imports Node filesystem code through PKI, so it is not directly browser-loadable.
 
 ## Cryptographic options
 
@@ -50,4 +52,10 @@ HTTPS message publish/long-poll, SSE, automatic reconnection, delivery acknowled
 
 ## Validation
 
-The six documented programs were built or syntax-checked and run as both service and caller against an isolated mesgd broker with a temporary account and private CA. Each service also received a request from another language. Plain/signed/sealed framing and dispatch were checked separately. These checks establish the demonstrated local flows, not full WebSocket conformance or production recovery behavior.
+| Language | Status |
+| --- | --- |
+| Erlang | Process reference. Protocol tests cover register, two-party encrypt, and signed envelopes. |
+| C, Go, JavaScript, Python, Ruby, Rust | Built or syntax-checked and run as both service and caller against an isolated mesgd broker with a temporary account and private CA. Each service also received a request from another language. Plain, signed, and sealed framing and dispatch were checked separately. |
+| Dart | Implemented. Local tests cover handshake accept validation, `json, TOKEN` and bearer-header authentication, plain/signed/sealed framing, fragmented delivery, ping/pong, and close. Not included in the isolated-broker pass above. |
+
+These checks establish the demonstrated local flows, not full WebSocket conformance or production recovery behavior.
