@@ -182,7 +182,7 @@ module PKI
   end
 
   # Accepts {"r":"<base64url>","s":"<base64url>"}
-  def self.verify(message, signature_json)
+  def self.check(message, signature_json)
     raise 'Keys not initialized' unless @signing_pub
     obj   = JSON.parse(signature_json)
     r_bn  = OpenSSL::BN.new(b64url_decode(obj['r']), 2)
@@ -204,5 +204,66 @@ module PKI
   def self.decrypt(ciphertext_b64)
     raise 'Keys not initialized' unless @encrypting_priv
     @encrypting_priv.decrypt(Base64.strict_decode64(ciphertext_b64), OAEP_OPTS)
+  end
+
+  def self.pub_jwk
+    arr = _export_jwk_array
+    { 'signing_pub' => arr[0], 'encrypting_pub' => arr[1] }
+  end
+
+  def self._unwrap_jwk(pub_jwk, inner)
+    return pub_jwk[inner] if pub_jwk.is_a?(Hash) && pub_jwk[inner].is_a?(Hash)
+    pub_jwk
+  end
+
+  def self.encrypt_with(pub_jwk, message)
+    jwk = _unwrap_jwk(pub_jwk, 'encrypting_pub')
+    n = b64url_to_bn(jwk['n'])
+    e = b64url_to_bn(jwk['e'])
+    key = OpenSSL::PKey.read(_rsa_spki_der(n, e))
+    Base64.strict_encode64(key.encrypt(message, OAEP_OPTS))
+  end
+
+  def self.check_with_pub(pub_jwk, message, signature_json)
+    jwk = _unwrap_jwk(pub_jwk, 'signing_pub')
+    x = b64url_decode(jwk['x']).rjust(32, "\x00")
+    y = b64url_decode(jwk['y']).rjust(32, "\x00")
+    key = OpenSSL::PKey.read(_ec_spki_der("\x04" + x + y))
+    obj = JSON.parse(signature_json)
+    r_bn = OpenSSL::BN.new(b64url_decode(obj['r']), 2)
+    s_bn = OpenSSL::BN.new(b64url_decode(obj['s']), 2)
+    der = OpenSSL::ASN1::Sequence([
+      OpenSSL::ASN1::Integer(r_bn),
+      OpenSSL::ASN1::Integer(s_bn)
+    ]).to_der
+    key.verify(OpenSSL::Digest::SHA256.new, der, message)
+  rescue OpenSSL::PKey::PKeyError, JSON::ParserError
+    false
+  end
+
+  # Hybrid seal matching the reference wire format {alg,k,iv,ct,tag}: a random
+  # AES-256-GCM key wrapped with RSA-OAEP-SHA256, so payloads exceed OAEP's cap.
+  def self.seal(pub_jwk, plain)
+    cipher = OpenSSL::Cipher.new('aes-256-gcm').encrypt
+    key = cipher.random_key
+    iv = cipher.random_iv
+    ct = cipher.update(plain) + cipher.final
+    JSON.generate(
+      'alg' => 'RSA-OAEP+A256GCM',
+      'k'   => encrypt_with(pub_jwk, key),
+      'iv'  => Base64.strict_encode64(iv),
+      'ct'  => Base64.strict_encode64(ct),
+      'tag' => Base64.strict_encode64(cipher.auth_tag)
+    )
+  end
+
+  def self.open(sealed_json)
+    m = JSON.parse(sealed_json)
+    key = @encrypting_priv.decrypt(Base64.strict_decode64(m['k']), OAEP_OPTS)
+    cipher = OpenSSL::Cipher.new('aes-256-gcm').decrypt
+    cipher.key = key
+    cipher.iv = Base64.strict_decode64(m['iv'])
+    cipher.auth_tag = Base64.strict_decode64(m['tag'])
+    cipher.update(Base64.strict_decode64(m['ct'])) + cipher.final
   end
 end

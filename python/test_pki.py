@@ -10,7 +10,8 @@ FIXTURES    = os.path.join(os.path.dirname(__file__), '..', 'fixtures')
 JWKS_FILE   = os.path.join(FIXTURES, 'jwks.json')
 GEN_FILE    = os.path.join(FIXTURES, 'test_python.json')
 SIG_OUT     = os.path.join(FIXTURES, 'sig_python.json')
-CROSS_LANGS = ['erlang', 'javascript', 'ruby', 'rust', 'go', 'c', 'java', 'csharp']
+CROSS_LANGS = ['erlang', 'javascript', 'ruby', 'rust', 'go', 'c', 'java', 'csharp', 'dart']
+CT_OUT      = os.path.join(FIXTURES, 'ct_python.json')
 
 
 class TestPKI(unittest.TestCase):
@@ -21,8 +22,8 @@ class TestPKI(unittest.TestCase):
 
     def test_sign_verify_roundtrip(self):
         sig = PKI.sign('Hello World')
-        self.assertTrue(PKI.verify('Hello World', sig))
-        self.assertFalse(PKI.verify('Wrong message', sig))
+        self.assertTrue(PKI.check('Hello World', sig))
+        self.assertFalse(PKI.check('Wrong message', sig))
 
     def test_signature_is_json(self):
         sig = PKI.sign('Hello World')
@@ -52,7 +53,7 @@ class TestPKI(unittest.TestCase):
         PKI.generate(GEN_FILE)
         PKI.init(GEN_FILE)
         sig = PKI.sign('Hello World')
-        self.assertTrue(PKI.verify('Hello World', sig))
+        self.assertTrue(PKI.check('Hello World', sig))
         enc = PKI.encrypt('Secret')
         self.assertEqual(PKI.decrypt(enc), 'Secret')
         # restore reference keys for cross-lang tests
@@ -73,8 +74,26 @@ class TestPKI(unittest.TestCase):
             with open(path) as f:
                 rec = json.load(f)
             self.assertTrue(
-                PKI.verify(rec['message'], rec['signature']),
+                PKI.check(rec['message'], rec['signature']),
                 f"Failed to verify signature from {lang}")
+
+    def test_write_cross_lang_ciphertext(self):
+        PKI.init(JWKS_FILE)
+        ct = PKI.encrypt('Secret message')
+        with open(CT_OUT, 'w') as f:
+            json.dump({'lang': 'python', 'message': 'Secret message', 'ciphertext': ct}, f)
+
+    def test_decrypt_cross_lang_ciphertexts(self):
+        PKI.init(JWKS_FILE)
+        for lang in CROSS_LANGS:
+            path = os.path.join(FIXTURES, f'ct_{lang}.json')
+            if not os.path.exists(path):
+                continue
+            with open(path) as f:
+                rec = json.load(f)
+            self.assertEqual(
+                PKI.decrypt(rec['ciphertext']), rec['message'],
+                f"Failed to decrypt ciphertext from {lang}")
 
 
 if __name__ == '__main__':

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <RootNamespace>MesgdSample</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Include PKI and mesgd modules from the SDK root -->
+  <ItemGroup>
+    <Compile Include="../../pki.cs" />
+    <Compile Include="../../mesgd.cs" />
+  </ItemGroup>
+</Project>

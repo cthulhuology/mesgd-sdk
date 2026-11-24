@@ -4,14 +4,14 @@ use std::fs;
 const JWKS_FILE: &str = "../fixtures/jwks.json";
 const GEN_FILE: &str  = "../fixtures/test_rust.json";
 const SIG_OUT: &str   = "../fixtures/sig_rust.json";
-const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby", "go", "c", "java", "csharp"];
+const CROSS_LANGS: &[&str] = &["erlang", "python", "javascript", "ruby", "go", "c", "java", "csharp", "dart"];
 
 #[test]
 fn test_sign_verify_roundtrip() {
     let pki = PKI::init(JWKS_FILE).expect("init failed");
     let sig = pki.sign("Hello World").expect("sign failed");
-    assert!(pki.verify("Hello World", &sig).expect("verify failed"), "valid signature should verify");
-    assert!(!pki.verify("Wrong", &sig).expect("verify failed"), "wrong message should not verify");
+    assert!(pki.check("Hello World", &sig).expect("verify failed"), "valid signature should verify");
+    assert!(!pki.check("Wrong", &sig).expect("verify failed"), "wrong message should not verify");
 }
 
 #[test]
@@ -59,9 +59,9 @@ fn test_generated_keys_work() {
     let jwks: Vec<serde_json::Value> = serde_json::from_str(&jwks_json).expect("parse failed");
     let pki2 = PKI::import_jwks(&jwks).expect("import failed");
     let sig = pki2.sign("Hello World").expect("sign failed");
-    assert!(pki2.verify("Hello World", &sig).expect("verify failed"));
+    assert!(pki2.check("Hello World", &sig).expect("verify failed"));
     // Also verify with original pki
-    assert!(pki.verify("Hello World", &sig).expect("verify cross failed"));
+    assert!(pki.check("Hello World", &sig).expect("verify cross failed"));
 }
 
 #[test]
@@ -90,7 +90,34 @@ fn test_verify_cross_lang_signatures() {
         let v: serde_json::Value = serde_json::from_str(&contents).expect("parse failed");
         let message = v["message"].as_str().expect("message field");
         let sig = v["signature"].as_str().expect("signature field");
-        let result = pki.verify(message, sig).expect(&format!("verify failed for {}", lang));
+        let result = pki.check(message, sig).expect(&format!("verify failed for {}", lang));
         assert!(result, "cross-lang verification failed for {}", lang);
+    }
+}
+
+#[test]
+fn test_write_cross_lang_ciphertext() {
+    let pki = PKI::init(JWKS_FILE).expect("init failed");
+    let ct = pki.encrypt("Secret message").expect("encrypt failed");
+    let out = serde_json::json!({
+        "lang": "rust",
+        "message": "Secret message",
+        "ciphertext": ct
+    });
+    fs::write("../fixtures/ct_rust.json", serde_json::to_string(&out).unwrap()).expect("write failed");
+}
+
+#[test]
+fn test_decrypt_cross_lang_ciphertexts() {
+    let pki = PKI::init(JWKS_FILE).expect("init failed");
+    for lang in CROSS_LANGS {
+        let path = format!("../fixtures/ct_{}.json", lang);
+        if !std::path::Path::new(&path).exists() {
+            continue;
+        }
+        let contents = fs::read_to_string(&path).expect("read failed");
+        let v: serde_json::Value = serde_json::from_str(&contents).expect("parse failed");
+        let pt = pki.decrypt(v["ciphertext"].as_str().expect("ciphertext")).expect("decrypt");
+        assert_eq!(pt, v["message"].as_str().expect("message"), "decrypt {} failed", lang);
     }
 }

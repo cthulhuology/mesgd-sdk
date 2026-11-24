@@ -15,7 +15,7 @@ public class PKITest {
     private static final String SIG_OUT   = FIXTURES + "/sig_java.json";
 
     private static final String[] CROSS_LANGS =
-        {"erlang", "python", "javascript", "ruby", "rust", "go", "c", "csharp"};
+        {"erlang", "python", "javascript", "ruby", "rust", "go", "c", "csharp", "dart"};
 
     @BeforeEach
     void loadSharedKeys() throws Exception {
@@ -29,20 +29,20 @@ public class PKITest {
         // init called in @BeforeEach — if we get here the keys loaded
         String sig = PKI.sign("probe");
         assertNotNull(sig);
-        assertTrue(PKI.verify("probe", sig));
+        assertTrue(PKI.check("probe", sig));
     }
 
     @Test
     void testSignVerifyRoundtrip() throws Exception {
         String sig = PKI.sign("Hello World");
         assertNotNull(sig);
-        assertTrue(PKI.verify("Hello World", sig));
+        assertTrue(PKI.check("Hello World", sig));
     }
 
     @Test
     void testVerifyWrongMessageFails() throws Exception {
         String sig = PKI.sign("Hello World");
-        assertFalse(PKI.verify("Wrong message", sig));
+        assertFalse(PKI.check("Wrong message", sig));
     }
 
     @Test
@@ -82,7 +82,7 @@ public class PKITest {
         String exported = PKI.exportJwks();
         PKI.importJwks(exported);
         String sig = PKI.sign("roundtrip");
-        assertTrue(PKI.verify("roundtrip", sig));
+        assertTrue(PKI.check("roundtrip", sig));
         new File("/tmp/pki_java_rt.json").delete();
     }
 
@@ -110,7 +110,7 @@ public class PKITest {
             JSONObject rec = new JSONObject(content);
             String message = rec.getString("message");
             String sig     = rec.getString("signature");
-            assertTrue(PKI.verify(message, sig), "Failed to verify signature from " + lang);
+            assertTrue(PKI.check(message, sig), "Failed to verify signature from " + lang);
         }
     }
 }

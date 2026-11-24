@@ -1,6 +1,8 @@
 package pki
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -107,22 +109,22 @@ func (p *PKI) Sign(message string) (string, error) {
 	return string(out), nil
 }
 
-// Verify verifies signatureJSON ({"r":"...","s":"..."}) against message using the EC public key.
-func (p *PKI) Verify(message, signatureJSON string) (bool, error) {
+// Check verifies signatureJSON ({"r":"...","s":"..."}) against message using the EC public key.
+func (p *PKI) Check(message, signatureJSON string) (bool, error) {
 	if p.signingPriv == nil {
-		return false, fmt.Errorf("Verify: no signing key")
+		return false, fmt.Errorf("Check: no signing key")
 	}
 	var sig map[string]string
 	if err := json.Unmarshal([]byte(signatureJSON), &sig); err != nil {
-		return false, fmt.Errorf("Verify: unmarshal signature: %w", err)
+		return false, fmt.Errorf("Check: unmarshal signature: %w", err)
 	}
 	rBytes, err := b64urlDec(sig["r"])
 	if err != nil {
-		return false, fmt.Errorf("Verify: decode r: %w", err)
+		return false, fmt.Errorf("Check: decode r: %w", err)
 	}
 	sBytes, err := b64urlDec(sig["s"])
 	if err != nil {
-		return false, fmt.Errorf("Verify: decode s: %w", err)
+		return false, fmt.Errorf("Check: decode s: %w", err)
 	}
 	r := new(big.Int).SetBytes(rBytes)
 	s := new(big.Int).SetBytes(sBytes)
@@ -319,4 +321,177 @@ func ImportJWKS(jwks []map[string]interface{}) (*PKI, error) {
 		return nil, fmt.Errorf("ImportJWKS: no RSA encrypting key found")
 	}
 	return p, nil
+}
+
+func jwkStr(m map[string]interface{}, key string) (string, error) {
+	s, ok := m[key].(string)
+	if !ok || s == "" {
+		return "", fmt.Errorf("jwk missing %s", key)
+	}
+	return s, nil
+}
+
+func unwrapJWK(jwk map[string]interface{}, inner string) map[string]interface{} {
+	if nested, ok := jwk[inner].(map[string]interface{}); ok {
+		return nested
+	}
+	return jwk
+}
+
+// PubJWK returns this instance's public signing and encrypting JWKs.
+func (p *PKI) PubJWK() map[string]interface{} {
+	jwks := p.ExportJWKS()
+	return map[string]interface{}{
+		"signing_pub":    jwks[0],
+		"encrypting_pub": jwks[1],
+	}
+}
+
+func rsaPubFromJWK(jwk map[string]interface{}) (*rsa.PublicKey, error) {
+	jwk = unwrapJWK(jwk, "encrypting_pub")
+	nS, err := jwkStr(jwk, "n")
+	if err != nil {
+		return nil, err
+	}
+	eS, err := jwkStr(jwk, "e")
+	if err != nil {
+		return nil, err
+	}
+	nB, err := b64urlDec(nS)
+	if err != nil {
+		return nil, fmt.Errorf("rsa n: %w", err)
+	}
+	eB, err := b64urlDec(eS)
+	if err != nil {
+		return nil, fmt.Errorf("rsa e: %w", err)
+	}
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nB),
+		E: int(new(big.Int).SetBytes(eB).Int64()),
+	}, nil
+}
+
+func ecdsaPubFromJWK(jwk map[string]interface{}) (*ecdsa.PublicKey, error) {
+	jwk = unwrapJWK(jwk, "signing_pub")
+	xS, err := jwkStr(jwk, "x")
+	if err != nil {
+		return nil, err
+	}
+	yS, err := jwkStr(jwk, "y")
+	if err != nil {
+		return nil, err
+	}
+	xB, err := b64urlDec(xS)
+	if err != nil {
+		return nil, fmt.Errorf("ec x: %w", err)
+	}
+	yB, err := b64urlDec(yS)
+	if err != nil {
+		return nil, fmt.Errorf("ec y: %w", err)
+	}
+	return &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X:     new(big.Int).SetBytes(xB),
+		Y:     new(big.Int).SetBytes(yB),
+	}, nil
+}
+
+// EncryptWith encrypts message to a foreign RSA public JWK (or a PubJWK map).
+func EncryptWith(pubJWK map[string]interface{}, message string) (string, error) {
+	pub, err := rsaPubFromJWK(pubJWK)
+	if err != nil {
+		return "", fmt.Errorf("EncryptWith: %w", err)
+	}
+	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pub, []byte(message), nil)
+	if err != nil {
+		return "", fmt.Errorf("EncryptWith: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// CheckWithPub verifies signatureJSON against message using a foreign EC public JWK.
+func CheckWithPub(pubJWK map[string]interface{}, message, signatureJSON string) (bool, error) {
+	pub, err := ecdsaPubFromJWK(pubJWK)
+	if err != nil {
+		return false, fmt.Errorf("CheckWithPub: %w", err)
+	}
+	var sig map[string]string
+	if err := json.Unmarshal([]byte(signatureJSON), &sig); err != nil {
+		return false, fmt.Errorf("CheckWithPub: unmarshal: %w", err)
+	}
+	rBytes, err := b64urlDec(sig["r"])
+	if err != nil {
+		return false, fmt.Errorf("CheckWithPub: r: %w", err)
+	}
+	sBytes, err := b64urlDec(sig["s"])
+	if err != nil {
+		return false, fmt.Errorf("CheckWithPub: s: %w", err)
+	}
+	h := sha256.Sum256([]byte(message))
+	return ecdsa.Verify(pub, h[:], new(big.Int).SetBytes(rBytes), new(big.Int).SetBytes(sBytes)), nil
+}
+
+// Seal hybrid-encrypts plain to a foreign RSA public JWK, matching the reference
+// wire format {alg,k,iv,ct,tag}: a random AES-256-GCM key wrapped with
+// RSA-OAEP-SHA256, so payloads exceed OAEP's ~190 byte cap.
+func (p *PKI) Seal(pubJWK map[string]interface{}, plain string) (string, error) {
+	pub, err := rsaPubFromJWK(pubJWK)
+	if err != nil {
+		return "", fmt.Errorf("Seal: %w", err)
+	}
+	key := make([]byte, 32)
+	iv := make([]byte, 12)
+	rand.Read(key)
+	rand.Read(iv)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("Seal: %w", err)
+	}
+	gcm, err := cipher.NewGCMWithNonceSize(block, 12)
+	if err != nil {
+		return "", fmt.Errorf("Seal: %w", err)
+	}
+	sealed := gcm.Seal(nil, iv, []byte(plain), nil)
+	ct, tag := sealed[:len(sealed)-16], sealed[len(sealed)-16:]
+	wrapped, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pub, key, nil)
+	if err != nil {
+		return "", fmt.Errorf("Seal: %w", err)
+	}
+	out, err := json.Marshal(map[string]string{
+		"alg": "RSA-OAEP+A256GCM",
+		"k":   base64.StdEncoding.EncodeToString(wrapped),
+		"iv":  base64.StdEncoding.EncodeToString(iv),
+		"ct":  base64.StdEncoding.EncodeToString(ct),
+		"tag": base64.StdEncoding.EncodeToString(tag),
+	})
+	return string(out), err
+}
+
+// Open reverses Seal with this PKI's RSA private key.
+func (p *PKI) Open(sealedJSON string) (string, error) {
+	var m map[string]string
+	if err := json.Unmarshal([]byte(sealedJSON), &m); err != nil {
+		return "", fmt.Errorf("Open: %w", err)
+	}
+	wrapped, _ := base64.StdEncoding.DecodeString(m["k"])
+	iv, _ := base64.StdEncoding.DecodeString(m["iv"])
+	ct, _ := base64.StdEncoding.DecodeString(m["ct"])
+	tag, _ := base64.StdEncoding.DecodeString(m["tag"])
+	key, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, p.encryptingPriv, wrapped, nil)
+	if err != nil {
+		return "", fmt.Errorf("Open: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("Open: %w", err)
+	}
+	gcm, err := cipher.NewGCMWithNonceSize(block, 12)
+	if err != nil {
+		return "", fmt.Errorf("Open: %w", err)
+	}
+	plain, err := gcm.Open(nil, iv, append(ct, tag...), nil)
+	if err != nil {
+		return "", fmt.Errorf("Open: %w", err)
+	}
+	return string(plain), nil
 }

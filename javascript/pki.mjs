@@ -1,5 +1,3 @@
-import { readFileSync, writeFileSync } from 'fs';
-
 function b64url(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -45,6 +43,7 @@ const PKI = {
 
   async init(path) {
     if (path) {
+      const { readFileSync } = await import('fs');
       const jwks = JSON.parse(readFileSync(path, 'utf8'));
       await this.importJWKS(jwks);
     } else {
@@ -70,7 +69,10 @@ const PKI = {
     privEnc.use = 'enc'; privEnc.key_ops = ['encrypt'];
 
     const jwks = [pubSig, pubEnc, privSig, privEnc];
-    if (path) writeFileSync(path, JSON.stringify(jwks));
+    if (path) {
+      const { writeFileSync } = await import('fs');
+      writeFileSync(path, JSON.stringify(jwks));
+    }
 
     this.signingPrivateKey    = sigPair.privateKey;
     this.signingPublicKey     = sigPair.publicKey;
@@ -89,7 +91,7 @@ const PKI = {
   },
 
   // Accepts {"r":"<base64url>","s":"<base64url>"}; reconstructs P1363 for WebCrypto
-  async verify(message, signatureJson) {
+  async check(message, signatureJson) {
     const { r, s } = JSON.parse(signatureJson);
     const p1363 = new Uint8Array(64);
     const rb = b64urlDecode(r), sb = b64urlDecode(s);
@@ -109,6 +111,64 @@ const PKI = {
     const ct = Uint8Array.from(atob(ciphertextBase64), c => c.charCodeAt(0));
     const pt = await crypto.subtle.decrypt(this.rsaAlg, this.encryptingPrivateKey, ct);
     return new TextDecoder().decode(pt);
+  },
+
+  async pubJwk() {
+    const pubSig = await crypto.subtle.exportKey('jwk', this.signingPublicKey);
+    const pubEnc = await crypto.subtle.exportKey('jwk', this.encryptingPublicKey);
+    pubSig.use = 'sig'; pubSig.key_ops = ['verify'];
+    pubEnc.use = 'enc'; pubEnc.key_ops = ['decrypt'];
+    return { signing_pub: pubSig, encrypting_pub: pubEnc };
+  },
+
+  async encryptWith(pubJwk, message) {
+    const jwk = pubJwk.encrypting_pub || pubJwk;
+    const strip = (j) => { const c = { ...j }; delete c.key_ops; delete c.use; return c; };
+    const key = await crypto.subtle.importKey('jwk', strip(jwk), this.rsaAlg, false, ['encrypt']);
+    const data = new TextEncoder().encode(message);
+    const ct = await crypto.subtle.encrypt(this.rsaAlg, key, data);
+    return btoa(String.fromCharCode(...new Uint8Array(ct)));
+  },
+
+  // Hybrid seal matching the reference wire format {alg,k,iv,ct,tag}: a random
+  // AES-256-GCM key wrapped with RSA-OAEP-SHA256, so payloads exceed OAEP's ~190B cap.
+  async seal(pubJwk, plain) {
+    const jwk = pubJwk.encrypting_pub || pubJwk;
+    const strip = (j) => { const c = { ...j }; delete c.key_ops; delete c.use; return c; };
+    const pub = await crypto.subtle.importKey('jwk', strip(jwk), this.rsaAlg, false, ['encrypt']);
+    const key = crypto.getRandomValues(new Uint8Array(32));
+    const iv  = crypto.getRandomValues(new Uint8Array(12));
+    const aes = await crypto.subtle.importKey('raw', key, { name: 'AES-GCM' }, false, ['encrypt']);
+    const sealed = new Uint8Array(await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, tagLength: 128 }, aes, new TextEncoder().encode(plain)));
+    const wrapped = new Uint8Array(await crypto.subtle.encrypt(this.rsaAlg, pub, key));
+    const b64 = (u8) => btoa(String.fromCharCode(...u8));
+    return JSON.stringify({ alg: 'RSA-OAEP+A256GCM', k: b64(wrapped), iv: b64(iv),
+      ct: b64(sealed.slice(0, -16)), tag: b64(sealed.slice(-16)) });
+  },
+
+  async open(bin) {
+    const m = JSON.parse(bin);
+    const u8 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+    const key = await crypto.subtle.decrypt(this.rsaAlg, this.encryptingPrivateKey, u8(m.k));
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), { name: 'AES-GCM' }, false, ['decrypt']);
+    const ct = u8(m.ct), tag = u8(m.tag);
+    const sealed = new Uint8Array([...ct, ...tag]);
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u8(m.iv), tagLength: 128 }, aes, sealed);
+    return new TextDecoder().decode(pt);
+  },
+
+  async checkWithPub(pubJwk, message, signatureJson) {
+    const jwk = pubJwk.signing_pub || pubJwk;
+    const strip = (j) => { const c = { ...j }; delete c.key_ops; delete c.use; return c; };
+    const key = await crypto.subtle.importKey('jwk', strip(jwk), this.signingAlg, false, ['verify']);
+    const { r, s } = JSON.parse(signatureJson);
+    const p1363 = new Uint8Array(64);
+    const rb = b64urlDecode(r), sb = b64urlDecode(s);
+    p1363.set(rb, 32 - rb.length);
+    p1363.set(sb, 64 - sb.length);
+    const data = new TextEncoder().encode(message);
+    return crypto.subtle.verify(this.signingParams, key, p1363, data);
   }
 };
 

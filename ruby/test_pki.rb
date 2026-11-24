@@ -6,7 +6,7 @@ FIXTURES    = File.join(__dir__, '..', 'fixtures')
 JWKS_FILE   = File.join(FIXTURES, 'jwks.json')
 GEN_FILE    = File.join(FIXTURES, 'test_ruby.json')
 SIG_OUT     = File.join(FIXTURES, 'sig_ruby.json')
-CROSS_LANGS = %w[erlang python javascript rust go c java csharp].freeze
+CROSS_LANGS = %w[erlang python javascript rust go c java csharp dart].freeze
 
 class TestPKI < Minitest::Test
   def setup
@@ -15,8 +15,8 @@ class TestPKI < Minitest::Test
 
   def test_sign_verify_roundtrip
     sig = PKI.sign('Hello World')
-    assert PKI.verify('Hello World', sig)
-    refute PKI.verify('Wrong message', sig)
+    assert PKI.check('Hello World', sig)
+    refute PKI.check('Wrong message', sig)
   end
 
   def test_signature_is_json
@@ -46,7 +46,7 @@ class TestPKI < Minitest::Test
     PKI.generate(GEN_FILE)
     PKI.init(GEN_FILE)
     sig = PKI.sign('Hello World')
-    assert PKI.verify('Hello World', sig)
+    assert PKI.check('Hello World', sig)
     enc = PKI.encrypt('Secret')
     assert_equal 'Secret', PKI.decrypt(enc)
     PKI.init(JWKS_FILE)
@@ -64,7 +64,24 @@ class TestPKI < Minitest::Test
       path = File.join(FIXTURES, "sig_#{lang}.json")
       next unless File.exist?(path)
       rec = JSON.parse(File.read(path))
-      assert PKI.verify(rec['message'], rec['signature']), "failed to verify #{lang} signature"
+      assert PKI.check(rec['message'], rec['signature']), "failed to verify #{lang} signature"
+    end
+  end
+
+  def test_write_cross_lang_ciphertext
+    PKI.init(JWKS_FILE)
+    ct = PKI.encrypt('Secret message')
+    File.write(File.join(FIXTURES, 'ct_ruby.json'),
+               JSON.generate('lang' => 'ruby', 'message' => 'Secret message', 'ciphertext' => ct))
+  end
+
+  def test_decrypt_cross_lang_ciphertexts
+    PKI.init(JWKS_FILE)
+    CROSS_LANGS.each do |lang|
+      path = File.join(FIXTURES, "ct_#{lang}.json")
+      next unless File.exist?(path)
+      rec = JSON.parse(File.read(path))
+      assert_equal rec['message'], PKI.decrypt(rec['ciphertext']), "failed to decrypt #{lang}"
     end
   end
 end

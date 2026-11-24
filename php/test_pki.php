@@ -17,15 +17,15 @@ function assert_equal(mixed $a, mixed $b, string $name): void {
 const JWKS_FILE  = __DIR__ . '/../fixtures/jwks.json';
 const GEN_FILE   = '/tmp/test_php.json';
 const SIG_OUT    = __DIR__ . '/../fixtures/sig_php.json';
-const CROSS_LANGS = ['erlang', 'python', 'javascript', 'ruby', 'rust', 'go', 'c', 'java', 'csharp'];
+const CROSS_LANGS = ['erlang', 'python', 'javascript', 'ruby', 'rust', 'go', 'c', 'java', 'csharp', 'dart'];
 
 echo "--- pki.php tests ---\n";
 
 // Test 1: sign/verify roundtrip
 PKI::init(JWKS_FILE);
 $sig = PKI::sign('Hello World');
-assert_true(PKI::verify('Hello World', $sig), 'sign/verify roundtrip');
-assert_true(!PKI::verify('Wrong message', $sig), 'verify wrong message fails');
+assert_true(PKI::check('Hello World', $sig), 'sign/verify roundtrip');
+assert_true(!PKI::check('Wrong message', $sig), 'verify wrong message fails');
 
 // Test 2: signature is JSON with r and s
 $obj = json_decode($sig, true);
@@ -50,7 +50,7 @@ assert_true($jwks !== null && count($jwks) === 4 &&
 // Test 5: generated keys work
 PKI::importJWKS($jwks);
 $sig2 = PKI::sign('Hello World');
-assert_true(PKI::verify('Hello World', $sig2), 'generated keys sign/verify');
+assert_true(PKI::check('Hello World', $sig2), 'generated keys sign/verify');
 
 // Test 6: write cross-lang signature
 PKI::init(JWKS_FILE);
@@ -64,7 +64,7 @@ foreach (CROSS_LANGS as $lang) {
     $path = __DIR__ . "/../fixtures/sig_{$lang}.json";
     if (!file_exists($path)) continue;
     $rec = json_decode(file_get_contents($path), true);
-    if (!PKI::verify($rec['message'], $rec['signature'])) {
+    if (!PKI::check($rec['message'], $rec['signature'])) {
         echo "  FAIL verify $lang signature\n";
         $failed++;
     } else {

@@ -251,7 +251,7 @@ class PKI {
                             's' => self::b64url(str_pad($s, 32, "\x00", STR_PAD_LEFT))]);
     }
 
-    public static function verify(string $message, string $sigJson): bool {
+    public static function check(string $message, string $sigJson): bool {
         $obj = json_decode($sigJson, true);
         $r = self::b64urlDec($obj['r']);
         $s = self::b64urlDec($obj['s']);

@@ -254,7 +254,7 @@ class PKI {
         return obj.toString();
     }
 
-    public static boolean verify(String message, String sigJson) throws Exception {
+    public static boolean check(String message, String sigJson) throws Exception {
         JSONObject obj = new JSONObject(sigJson);
         BigInteger r = new BigInteger(1, b64urlDec(obj.getString("r")));
         BigInteger s = new BigInteger(1, b64urlDec(obj.getString("s")));

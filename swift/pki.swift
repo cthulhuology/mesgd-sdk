@@ -35,7 +35,7 @@ struct PKI {
         return signature.base64EncodedString()
     }
 
-    static func verify(_ message: String, signature: String) throws -> Bool {
+    static func check(_ message: String, signature: String) throws -> Bool {
         try init()
         guard let key = signingPrivateKey else { throw NSError(domain: "PKI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Keys not initialized"]) }
         let publicKey = key.publicKey
@@ -72,7 +72,7 @@ do {
     try PKI.init()
     let sig = try PKI.sign("Hello World")
     print("Signature: \(sig)")
-    print("Verify: \(try PKI.verify("Hello World", signature: sig))")
+    print("Verify: \(try PKI.check("Hello World", signature: sig))")
     let enc = try PKI.encrypt("Secret message")
     print("Encrypted: \(enc)")
     print("Decrypted: \(try PKI.decrypt(enc))")

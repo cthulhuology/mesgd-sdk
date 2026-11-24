@@ -24,10 +24,15 @@
 -module(pki).
 -author({ "David J Goehrig", "dave@dloh.org" }).
 
--export([ init/1, generate/1, sign/1, verify/2, encrypt/1, decrypt/1, export/4, import/1 ]).
+-export([ init/0, init/1, generate/1, sign/1, check/2, check_with_pub/3,
+	encrypt/1, decrypt/1, encrypt_with/2, export/4, import/1,
+	register/1, pub_jwk/0, seal/2, open/1 ]).
 
 -define(CURVE, secp256r1).
 -define(RSA_OPTS, [{rsa_padding, rsa_pkcs1_oaep_padding}, {rsa_oaep_md, sha256}]).
+
+init() ->
+	init(os:getenv("MESGD_KEY_FILE", "mesgd_keys.json")).
 
 init(KeyFile) ->
 	case file:read_file(KeyFile) of
@@ -60,14 +65,67 @@ sign(Msg) when is_binary(Msg) ->
 	iolist_to_binary(json:encode(#{ <<"r">> => base64url_encode(int_to_bin32(R)),
 	                                <<"s">> => base64url_encode(int_to_bin32(S)) })).
 
-verify(Msg, SigJson) when is_binary(Msg) ->
+check(Msg, SigJson) when is_binary(Msg) ->
+	check_with_pub(get(sig_pub), Msg, SigJson).
+
+check_with_pub(#{ <<"signing_pub">> := Jwk }, Msg, SigJson) ->
+	check_with_pub(import_jwk_ec_pub(Jwk), Msg, SigJson);
+check_with_pub(#{ <<"kty">> := <<"EC">> } = Jwk, Msg, SigJson) ->
+	check_with_pub(import_jwk_ec_pub(Jwk), Msg, SigJson);
+check_with_pub(Pub, Msg, SigJson) when is_binary(Msg) ->
 	#{ <<"r">> := R64, <<"s">> := S64 } = json:decode(iolist_to_binary(SigJson)),
 	R = base64url_decode_int(R64),
 	S = base64url_decode_int(S64),
 	Der = encode_sig_der(R, S),
-	Pub = get(sig_pub),
-	Key = [Pub, ?CURVE],
-	crypto:verify(ecdsa, sha256, Msg, Der, Key).
+	crypto:verify(ecdsa, sha256, Msg, Der, [Pub, ?CURVE]).
+
+encrypt_with(PubJwk, Msg) when is_binary(Msg) ->
+	Pub = rsa_pub_of(PubJwk),
+	Cipher = crypto:public_encrypt(rsa, Msg, Pub, ?RSA_OPTS),
+	base64:encode(Cipher).
+
+rsa_pub_of(#{ <<"encrypting_pub">> := Jwk }) -> import_jwk_rsa_pub(Jwk);
+rsa_pub_of(Jwk) -> import_jwk_rsa_pub(Jwk).
+
+pub_jwk() ->
+	#{ <<"signing_pub">> => export_jwk_ec_pub(get(sig_pub)),
+	   <<"encrypting_pub">> => export_jwk_rsa_pub(get(enc_pub)) }.
+
+%% Hybrid seal so LLM streams and JWK registration fit past RSA-OAEP's ~190 byte cap.
+seal(PubJwk, Plain) when is_binary(Plain) ->
+	Key = crypto:strong_rand_bytes(32),
+	IV = crypto:strong_rand_bytes(12),
+	{Ct, Tag} = crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, Plain, <<>>, true),
+	json:encode(#{
+		<<"alg">> => <<"RSA-OAEP+A256GCM">>,
+		<<"k">> => encrypt_with(PubJwk, Key),
+		<<"iv">> => base64:encode(IV),
+		<<"ct">> => base64:encode(Ct),
+		<<"tag">> => base64:encode(Tag)
+	}).
+
+open(Bin) when is_binary(Bin) ->
+	Map = json:decode(Bin),
+	case maps:get(<<"alg">>, Map, undefined) of
+		<<"RSA-OAEP+A256GCM">> ->
+			Key = decrypt(maps:get(<<"k">>, Map)),
+			IV = base64:decode(maps:get(<<"iv">>, Map)),
+			Ct = base64:decode(maps:get(<<"ct">>, Map)),
+			Tag = base64:decode(maps:get(<<"tag">>, Map)),
+			crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, Ct, <<>>, Tag, false);
+		_ ->
+			decrypt(Bin)
+	end.
+
+register(MesgdPub) ->
+	Payload = json:encode(pub_jwk()),
+	Sig = sign(Payload),
+	Envelope = json:encode(#{ <<"payload">> => Payload, <<"signature">> => Sig }),
+	Pub = case MesgdPub of
+		#{ <<"encrypting_pub">> := J } -> J;
+		J -> J
+	end,
+	seal(Pub, Envelope).
 
 %% Parse DER SEQUENCE { INTEGER r, INTEGER s }
 parse_der_sig(<<16#30, _Len, Rest/binary>>) ->

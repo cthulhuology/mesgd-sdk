@@ -209,7 +209,7 @@ static class PKI
         return $"{{\"r\":\"{r}\",\"s\":\"{s}\"}}";
     }
 
-    public static bool Verify(string message, string sigJson)
+    public static bool Check(string message, string sigJson)
     {
         byte[] data = Encoding.UTF8.GetBytes(message);
         using var doc = JsonDocument.Parse(sigJson);

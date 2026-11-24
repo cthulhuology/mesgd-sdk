@@ -1,0 +1,16 @@
+{
+  "name": "mesgd-sdk-js-sample",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "mesgd-sdk JavaScript ping/pong echo sample",
+  "main": "sample.mjs",
+  "scripts": {
+    "start": "node sample.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

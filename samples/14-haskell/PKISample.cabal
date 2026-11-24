@@ -1,0 +1,21 @@
+cabal-version: 2.4
+name:          pki-sample
+version:       0.1.0.0
+synopsis:      mesgd-sdk Haskell ping/pong echo sample
+license:       MIT
+build-type:    Simple
+
+executable pki-sample
+  main-is:          PKISample.hs
+  build-depends:
+      base              >= 4.16  && < 5
+    , crypton           >= 0.34
+    , websockets        >= 0.12
+    , wuss              >= 2.0
+    , aeson             >= 2.1
+    , bytestring        >= 0.11
+    , text              >= 2.0
+    , base64-bytestring >= 1.2
+    , network-uri       >= 2.6
+  default-language: Haskell2010
+  ghc-options:      -Wall -Wno-name-shadowing

@@ -1,0 +1,187 @@
+[
+  {
+    "op": "signup",
+    "args": [
+      "alice@example.com",
+      "alice@example.com",
+      "a long unique password",
+      [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    ],
+    "method": "POST",
+    "path": "/auth/signup",
+    "body": {
+      "user": "alice@example.com",
+      "email": "alice@example.com",
+      "password": "a long unique password",
+      "public_keys": [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    },
+    "token": null,
+    "result": {
+      "enrollment_token": "enrollment",
+      "secret": "MANUALKEY",
+      "otpauth_uri": "otpauth://totp/test",
+      "qr_png_base64": "PNG"
+    }
+  },
+  {
+    "op": "confirm",
+    "args": [
+      "alice@example.com",
+      "enrollment",
+      "012345"
+    ],
+    "method": "POST",
+    "path": "/auth/signup/confirm",
+    "body": {
+      "user": "alice@example.com",
+      "enrollment_token": "enrollment",
+      "otp": "012345"
+    },
+    "token": null,
+    "result": {
+      "access_token": "mesgd.test.session",
+      "recovery_codes": [
+        "recovery"
+      ],
+      "expires_in": 3600
+    }
+  },
+  {
+    "op": "login",
+    "args": [
+      "alice@example.com",
+      "a long unique password",
+      "012345"
+    ],
+    "method": "POST",
+    "path": "/auth/login",
+    "body": {
+      "user": "alice@example.com",
+      "password": "a long unique password",
+      "otp": "012345"
+    },
+    "token": null,
+    "result": {
+      "access_token": "mesgd.test.session",
+      "expires_in": 3600
+    }
+  },
+  {
+    "op": "reset_password",
+    "args": [
+      "alice@example.com",
+      "recovery",
+      "a long unique password",
+      "012345"
+    ],
+    "method": "POST",
+    "path": "/auth/password/reset",
+    "body": {
+      "user": "alice@example.com",
+      "recovery_code": "recovery",
+      "new_password": "a long unique password",
+      "otp": "012345"
+    },
+    "token": null,
+    "result": {
+      "password_reset": true,
+      "recovery_codes": [
+        "replacement"
+      ]
+    }
+  },
+  {
+    "op": "keys",
+    "args": [
+      "mesgd.test.session"
+    ],
+    "method": "GET",
+    "path": "/auth/keys",
+    "body": null,
+    "token": "mesgd.test.session",
+    "result": {
+      "public_keys": [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    }
+  },
+  {
+    "op": "set_keys",
+    "args": [
+      "mesgd.test.session",
+      "a long unique password",
+      "012345",
+      [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    ],
+    "method": "PUT",
+    "path": "/auth/keys",
+    "body": {
+      "password": "a long unique password",
+      "otp": "012345",
+      "public_keys": [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    },
+    "token": "mesgd.test.session",
+    "result": {
+      "public_keys": [
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "use": "sig",
+          "x": "public-x",
+          "y": "public-y"
+        }
+      ]
+    }
+  },
+  {
+    "op": "logout",
+    "args": [
+      "mesgd.test.session"
+    ],
+    "method": "POST",
+    "path": "/auth/logout",
+    "body": null,
+    "token": "mesgd.test.session",
+    "result": {
+      "logged_out": true
+    }
+  }
+]

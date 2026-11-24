@@ -19,7 +19,7 @@ class TestRunner
     const string SIG_OUT   = FIXTURES + "/sig_csharp.json";
 
     static readonly string[] CROSS_LANGS =
-        { "erlang", "python", "javascript", "ruby", "rust", "go", "c", "java" };
+        { "erlang", "python", "javascript", "ruby", "rust", "go", "c", "java", "dart" };
 
     static int _pass, _fail;
 
@@ -53,21 +53,21 @@ class TestRunner
         PKI.Init(JWKS_FILE);
         string sig = PKI.Sign("probe");
         Assert(sig.Length > 0);
-        Assert(PKI.Verify("probe", sig));
+        Assert(PKI.Check("probe", sig));
     }
 
     static void TestSignVerifyRoundtrip()
     {
         PKI.Init(JWKS_FILE);
         string sig = PKI.Sign("Hello World");
-        Assert(PKI.Verify("Hello World", sig), "valid sig should verify");
+        Assert(PKI.Check("Hello World", sig), "valid sig should verify");
     }
 
     static void TestVerifyWrongMessageFails()
     {
         PKI.Init(JWKS_FILE);
         string sig = PKI.Sign("Hello World");
-        Assert(!PKI.Verify("Wrong message", sig), "wrong message should not verify");
+        Assert(!PKI.Check("Wrong message", sig), "wrong message should not verify");
     }
 
     static void TestSignatureIsJson()
@@ -107,7 +107,7 @@ class TestRunner
         string exported = PKI.Export();
         PKI.Import(exported);
         string sig = PKI.Sign("roundtrip");
-        Assert(PKI.Verify("roundtrip", sig));
+        Assert(PKI.Check("roundtrip", sig));
         File.Delete("/tmp/pki_csharp_rt.json");
     }
 
@@ -135,7 +135,7 @@ class TestRunner
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             string message = doc.RootElement.GetProperty("message").GetString()!;
             string sig     = doc.RootElement.GetProperty("signature").GetString()!;
-            Assert(PKI.Verify(message, sig), $"failed to verify sig from {lang}");
+            Assert(PKI.Check(message, sig), $"failed to verify sig from {lang}");
         }
     }
 

@@ -8,7 +8,8 @@ const FIXTURES   = join(__dirname, '..', 'fixtures');
 const JWKS_FILE  = join(FIXTURES, 'jwks.json');
 const GEN_FILE   = join(FIXTURES, 'test_javascript.json');
 const SIG_OUT    = join(FIXTURES, 'sig_javascript.json');
-const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go', 'c', 'java', 'csharp'];
+const CT_OUT     = join(FIXTURES, 'ct_javascript.json');
+const CROSS_LANGS = ['erlang', 'python', 'ruby', 'rust', 'go', 'c', 'java', 'csharp', 'dart'];
 
 // Use a test-local localStorage so tests don't pollute or consume the shared store
 global.localStorage = new LocalStorage(join(FIXTURES, 'storage'));
@@ -44,8 +45,8 @@ async function runTests() {
 
   await test('sign/verify round-trip', async () => {
     const sig = await PKI.sign('Hello World');
-    assert(await PKI.verify('Hello World', sig), 'verify should pass');
-    assert(!await PKI.verify('Wrong message', sig), 'wrong message should fail');
+    assert(await PKI.check('Hello World', sig), 'verify should pass');
+    assert(!await PKI.check('Wrong message', sig), 'wrong message should fail');
   });
 
   await test('signature is JSON with r and s', async () => {
@@ -73,7 +74,7 @@ async function runTests() {
   await test('generated keys work', async () => {
     await loadFromFile(GEN_FILE);
     const sig = await PKI.sign('Hello World');
-    assert(await PKI.verify('Hello World', sig));
+    assert(await PKI.check('Hello World', sig));
     const enc = await PKI.encrypt('Secret');
     assertEqual(await PKI.decrypt(enc), 'Secret');
     await loadFromFile(JWKS_FILE); // restore reference keys
@@ -91,7 +92,23 @@ async function runTests() {
       const path = join(FIXTURES, `sig_${lang}.json`);
       if (!existsSync(path)) continue;
       const rec = JSON.parse(readFileSync(path, 'utf8'));
-      assert(await PKI.verify(rec.message, rec.signature), `failed to verify ${lang} signature`);
+      assert(await PKI.check(rec.message, rec.signature), `failed to verify ${lang} signature`);
+    }
+  });
+
+  await test('write cross-lang ciphertext', async () => {
+    await loadFromFile(JWKS_FILE);
+    const ct = await PKI.encrypt('Secret message');
+    writeFileSync(CT_OUT, JSON.stringify({ lang: 'javascript', message: 'Secret message', ciphertext: ct }));
+  });
+
+  await test('decrypt cross-lang ciphertexts', async () => {
+    await loadFromFile(JWKS_FILE);
+    for (const lang of CROSS_LANGS) {
+      const path = join(FIXTURES, `ct_${lang}.json`);
+      if (!existsSync(path)) continue;
+      const rec = JSON.parse(readFileSync(path, 'utf8'));
+      assertEqual(await PKI.decrypt(rec.ciphertext), rec.message);
     }
   });
 

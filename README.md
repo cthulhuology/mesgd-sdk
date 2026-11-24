@@ -10,6 +10,7 @@ Premise
 The goal of this repo is to make a polyglot library for using JWKs for signing, verification, encrypting and decrypting for the mesgd platform.  This is currently just an experiment in implementing JWK support across multiple languages:
 
 * javascript
+* dart
 * erlang
 * perl
 * python
@@ -41,7 +42,7 @@ But to make that a scalable reality, we need encryption and cryptographic signat
 As I implement tests, the supported languages will increase.  Right now the goal is an API that looks like:
 
 * sign(message)
-* verify(message,signature)
+* check(message,signature)
 * encrypt(message)
 * decrypt(message)
 * import(filename)
@@ -49,17 +50,17 @@ As I implement tests, the supported languages will increase.  Right now the goal
 * public()
 * private()
 
-The core concept is it should be trivially easy to share keys and encrypt + sign and verify + decrypt 
+The core concept is it should be trivially easy to share keys and encrypt + sign and check + decrypt
 any message sent via the <a href="https://mesgd.org/">mesgd</a> platform, or between any applications.
 
 Currently, mesgd doesn't enforce encryption in transit other than through wss:// encryption.  However,
 in the ideal world, every message crossing the platform will have an envelope containing an application
 specific encrypted payload.  While mesgd enforces message routing policies based on JWT tokens, we not
-only want to sign and verify the connection request, but we want to be able to route messages to specific
+only want to sign and check the connection request, but we want to be able to route messages to specific
 recipients only, using their public keys to ensure that only they are able to decrypt the content.
 
 This SDK endeavours to make that entire process seamless, send will encrypt the payload and sign it,
-on will recieve the message, verify the sender, and decrypt it, passing it on the appropriate callback.
+on will recieve the message, check the sender, and decrypt it, passing it on the appropriate callback.
 As long as both sender and reciever have their public keys properly registered with <a href="https://mesgd.org">mesgd.org</a>
 the messaging will work seamlessly.
 
@@ -90,7 +91,7 @@ Only if you want it to.  Typically, when a message is sent to mesgd with the int
 the sender will encrypt it with the public key of the distribtion list and then mesgd then translates the distribution list
 message to the consumer specific messages.  Likewise, when a recipient receives the message, it may use the mesgd public
 key to respond to all recipients.  However, if the message is sent with a specific recipient's public key for the encrypt side,
-then mesgd will pass it through to that recipient, and all other potential recipients will not be able to read or verify 
+then mesgd will pass it through to that recipient, and all other potential recipients will not be able to read or verify
 the message contents, even if they receive it by intent or accident.
 
 Wait a second, mesgd may send encrypted messages to unintended recipients?
@@ -145,3 +146,25 @@ What is your north star, what is your guiding principle?
 Freedom isn't free, but we want to maximize freedom.  As individuals we can't be maximally free, but voluntarily together we can be.
 I am giving you this wonderful solution as a gift, please gift to me in turn a life where my children don't freeze or go hungry.
 
+
+User authentication and OTP 2FA
+-------------------------------
+
+The language clients now include signup/QR enrollment, OTP confirmation,
+password + OTP login, recovery-code password resets, bearer sessions, logout,
+and credential-linked public-key updates. See [AUTH.md](AUTH.md) for language
+coverage, HTTPS transports and examples. Run `make test-auth` for request
+contracts and `make test-auth-live` for isolated HTTPS tests against mesgd.
+
+
+Message transport
+-----------------
+
+The `mesgd` wrappers now provide JSON WebSocket connections for C, Dart, Go,
+JavaScript, Python, Ruby, and Rust, alongside the Erlang reference. Each
+connection owns one subscription path and credential; `send` publishes and
+`on` installs local dispatch handlers. Signing and body sealing are optional,
+and receive-side signature verification remains an application step.
+
+[TRANSPORT.md](TRANSPORT.md) describes the implemented interface and its limits,
+with links to per-function references and complete pub/sub service/client programs.

@@ -204,7 +204,7 @@ impl PKI {
         Ok(format!("{{\"r\":\"{}\",\"s\":\"{}\"}}", b64url_enc(&r), b64url_enc(&s)))
     }
 
-    pub fn verify(&self, message: &str, sig_json: &str) -> Result<bool, Box<dyn Error>> {
+    pub fn check(&self, message: &str, sig_json: &str) -> Result<bool, Box<dyn Error>> {
         let v: Value = serde_json::from_str(sig_json)?;
         let r_bytes = b64url_dec(v["r"].as_str().unwrap());
         let s_bytes = b64url_dec(v["s"].as_str().unwrap());
@@ -244,4 +244,124 @@ impl PKI {
         plaintext.truncate(written);
         Ok(String::from_utf8(plaintext)?)
     }
+
+    pub fn pub_jwk(&self) -> Result<Value, Box<dyn Error>> {
+        let jwks = self.export_jwks()?;
+        Ok(json!({
+            "signing_pub": jwks[0],
+            "encrypting_pub": jwks[1]
+        }))
+    }
+
+    fn unwrap_jwk<'a>(jwk: &'a Value, inner: &str) -> &'a Value {
+        if jwk.get(inner).map(|v| v.is_object()).unwrap_or(false) {
+            &jwk[inner]
+        } else {
+            jwk
+        }
+    }
+
+    pub fn encrypt_with(pub_jwk: &Value, message: &str) -> Result<String, Box<dyn Error>> {
+        let jwk = Self::unwrap_jwk(pub_jwk, "encrypting_pub");
+        let n = BigNum::from_slice(&b64url_dec(jwk["n"].as_str().ok_or("missing n")?))?;
+        let e = BigNum::from_slice(&b64url_dec(jwk["e"].as_str().ok_or("missing e")?))?;
+        let rsa = Rsa::from_public_components(n, e)?;
+        let key = PKey::from_rsa(rsa)?;
+        let data = message.as_bytes();
+        let mut ctx = PkeyCtx::new(&key)?;
+        ctx.encrypt_init()?;
+        ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
+        ctx.set_rsa_oaep_md(Md::sha256())?;
+        ctx.set_rsa_mgf1_md(Md::sha256())?;
+        let len = ctx.encrypt(data, None)?;
+        let mut out = vec![0u8; len];
+        let written = ctx.encrypt(data, Some(&mut out))?;
+        out.truncate(written);
+        Ok(b64_std_enc(&out))
+    }
+
+    pub fn check_with_pub(pub_jwk: &Value, message: &str, sig_json: &str) -> Result<bool, Box<dyn Error>> {
+        let jwk = Self::unwrap_jwk(pub_jwk, "signing_pub");
+        let x_bytes = b64url_dec(jwk["x"].as_str().ok_or("missing x")?);
+        let y_bytes = b64url_dec(jwk["y"].as_str().ok_or("missing y")?);
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+        let mut ctx = BigNumContext::new()?;
+        let mut point_bytes = vec![0x04u8];
+        point_bytes.extend_from_slice(&pad32(x_bytes));
+        point_bytes.extend_from_slice(&pad32(y_bytes));
+        let point = EcPoint::from_bytes(&group, &point_bytes, &mut ctx)?;
+        let ec_key = EcKey::from_public_key(&group, &point)?;
+        let key = PKey::from_ec_key(ec_key)?;
+        let v: Value = serde_json::from_str(sig_json)?;
+        let r = BigNum::from_slice(&b64url_dec(v["r"].as_str().ok_or("missing r")?))?;
+        let s = BigNum::from_slice(&b64url_dec(v["s"].as_str().ok_or("missing s")?))?;
+        let sig = EcdsaSig::from_private_components(r, s)?;
+        let der = sig.to_der()?;
+        let mut verifier = Verifier::new(MessageDigest::sha256(), &key)?;
+        verifier.update(message.as_bytes())?;
+        Ok(verifier.verify(&der)?)
+    }
+
+    /// Hybrid seal matching the reference wire format {alg,k,iv,ct,tag}: a random
+    /// AES-256-GCM key wrapped with RSA-OAEP-SHA256, so payloads exceed OAEP's cap.
+    pub fn seal(pub_jwk: &Value, plain: &str) -> Result<String, Box<dyn Error>> {
+        let jwk = Self::unwrap_jwk(pub_jwk, "encrypting_pub");
+        let n = BigNum::from_slice(&b64url_dec(jwk["n"].as_str().ok_or("missing n")?))?;
+        let e = BigNum::from_slice(&b64url_dec(jwk["e"].as_str().ok_or("missing e")?))?;
+        let key = PKey::from_rsa(Rsa::from_public_components(n, e)?)?;
+
+        let mut aes_key = [0u8; 32];
+        let mut iv = [0u8; 12];
+        openssl::rand::rand_bytes(&mut aes_key)?;
+        openssl::rand::rand_bytes(&mut iv)?;
+        let mut tag = [0u8; 16];
+        let ct = openssl::symm::encrypt_aead(openssl::symm::Cipher::aes_256_gcm(),
+            &aes_key, Some(&iv), &[], plain.as_bytes(), &mut tag)?;
+
+        let mut ctx = PkeyCtx::new(&key)?;
+        ctx.encrypt_init()?;
+        ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
+        ctx.set_rsa_oaep_md(Md::sha256())?;
+        ctx.set_rsa_mgf1_md(Md::sha256())?;
+        let len = ctx.encrypt(&aes_key, None)?;
+        let mut wrapped = vec![0u8; len];
+        let written = ctx.encrypt(&aes_key, Some(&mut wrapped))?;
+        wrapped.truncate(written);
+
+        Ok(serde_json::to_string(&json!({
+            "alg": "RSA-OAEP+A256GCM",
+            "k": b64_std_enc(&wrapped),
+            "iv": b64_std_enc(&iv),
+            "ct": b64_std_enc(&ct),
+            "tag": b64_std_enc(&tag),
+        }))?)
+    }
+
+    pub fn open(&self, sealed_json: &str) -> Result<String, Box<dyn Error>> {
+        let m: Value = serde_json::from_str(sealed_json)?;
+        let wrapped = b64_std_dec(m["k"].as_str().ok_or("missing k")?);
+        let iv = b64_std_dec(m["iv"].as_str().ok_or("missing iv")?);
+        let ct = b64_std_dec(m["ct"].as_str().ok_or("missing ct")?);
+        let tag = b64_std_dec(m["tag"].as_str().ok_or("missing tag")?);
+
+        let mut ctx = PkeyCtx::new(&self.encrypting_priv)?;
+        ctx.decrypt_init()?;
+        ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
+        ctx.set_rsa_oaep_md(Md::sha256())?;
+        ctx.set_rsa_mgf1_md(Md::sha256())?;
+        let len = ctx.decrypt(&wrapped, None)?;
+        let mut aes_key = vec![0u8; len];
+        let written = ctx.decrypt(&wrapped, Some(&mut aes_key))?;
+        aes_key.truncate(written);
+
+        let plain = openssl::symm::decrypt_aead(openssl::symm::Cipher::aes_256_gcm(),
+            &aes_key, Some(&iv), &[], &ct, &tag)?;
+        Ok(String::from_utf8(plain)?)
+    }
 }
+
+/// Password + authenticator authentication clients.
+pub mod auth;
+
+/// mesgd transport client.
+pub mod mesgd;

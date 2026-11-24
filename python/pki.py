@@ -114,7 +114,7 @@ class PKI:
                            's': _b64url_encode(_int_to_bytes(s, 32))})
 
     @classmethod
-    def verify(cls, message, signature_json):
+    def check(cls, message, signature_json):
         from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
         sig = json.loads(signature_json)
         r = _bytes_to_int(sig['r'])
@@ -141,3 +141,73 @@ class PKI:
             ct,
             padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
                          algorithm=hashes.SHA256(), label=None)).decode()
+
+    @classmethod
+    def pub_jwk(cls):
+        arr = cls._export_jwk_array()
+        return {'signing_pub': arr[0], 'encrypting_pub': arr[1]}
+
+    @classmethod
+    def encrypt_with(cls, pub_jwk, message):
+        jwk = pub_jwk.get('encrypting_pub', pub_jwk) if isinstance(pub_jwk, dict) else pub_jwk
+        n = _bytes_to_int(jwk['n'])
+        e = _bytes_to_int(jwk['e'])
+        key = RSAPublicNumbers(e, n).public_key()
+        raw = message.encode() if isinstance(message, str) else message
+        ct = key.encrypt(
+            raw,
+            padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                         algorithm=hashes.SHA256(), label=None))
+        return base64.b64encode(ct).decode()
+
+    @classmethod
+    def check_with_pub(cls, pub_jwk, message, signature_json):
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+        jwk = pub_jwk.get('signing_pub', pub_jwk) if isinstance(pub_jwk, dict) else pub_jwk
+        x = _bytes_to_int(jwk['x'])
+        y = _bytes_to_int(jwk['y'])
+        key = EllipticCurvePublicNumbers(x, y, SECP256R1()).public_key()
+        sig = json.loads(signature_json)
+        der = encode_dss_signature(_bytes_to_int(sig['r']), _bytes_to_int(sig['s']))
+        raw = message.encode() if isinstance(message, str) else message
+        try:
+            key.verify(der, raw, ec.ECDSA(hashes.SHA256()))
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def register(cls, mesgd_pub_jwk):
+        payload = json.dumps(cls.pub_jwk(), separators=(',', ':'))
+        envelope = json.dumps(
+            {'payload': payload, 'signature': cls.sign(payload)},
+            separators=(',', ':'))
+        return cls.encrypt_with(mesgd_pub_jwk, envelope)
+
+    # Hybrid seal matching the reference wire format {alg,k,iv,ct,tag}: a random
+    # AES-256-GCM key wrapped with RSA-OAEP-SHA256, so payloads exceed OAEP's cap.
+    @classmethod
+    def seal(cls, pub_jwk, plain):
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        key = os.urandom(32)
+        iv = os.urandom(12)
+        raw = plain.encode() if isinstance(plain, str) else plain
+        sealed = AESGCM(key).encrypt(iv, raw, None)  # ct || 16-byte tag
+        return json.dumps({
+            'alg': 'RSA-OAEP+A256GCM',
+            'k': cls.encrypt_with(pub_jwk, key),
+            'iv': base64.b64encode(iv).decode(),
+            'ct': base64.b64encode(sealed[:-16]).decode(),
+            'tag': base64.b64encode(sealed[-16:]).decode(),
+        }, separators=(',', ':'))
+
+    @classmethod
+    def open(cls, sealed_json):
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        m = json.loads(sealed_json)
+        key = cls.encrypting_priv.decrypt(
+            base64.b64decode(m['k']),
+            padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                         algorithm=hashes.SHA256(), label=None))
+        ct = base64.b64decode(m['ct']) + base64.b64decode(m['tag'])
+        return AESGCM(key).decrypt(base64.b64decode(m['iv']), ct, None).decode()

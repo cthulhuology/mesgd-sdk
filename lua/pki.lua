@@ -82,7 +82,7 @@ function PKI.sign(message)
     return base64_encode(signature)
 end
 
-function PKI.verify(message, signature_b64)
+function PKI.check(message, signature_b64)
     if not signing_pub then PKI.init() end
     local signature = base64_decode(signature_b64)
     return signing_pub:verify(message, signature, 'sha256')
@@ -104,6 +104,6 @@ end
 -- Usage example:
 -- PKI.init()
 -- local sig = PKI.sign('Hello World')
--- print(PKI.verify('Hello World', sig))  -- true
+-- print(PKI.check('Hello World', sig))  -- true
 -- local enc = PKI.encrypt('Secret message')
 -- print(PKI.decrypt(enc))  -- Secret message

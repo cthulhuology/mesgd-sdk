@@ -5,7 +5,8 @@
 -define(JWKS_FILE,  "../fixtures/jwks.json").
 -define(GEN_FILE,   "../fixtures/test_erlang.json").
 -define(SIG_OUT,    "../fixtures/sig_erlang.json").
--define(CROSS_LANGS, ["python", "javascript", "ruby", "rust", "go", "c", "java", "csharp"]).
+-define(CT_OUT,     "../fixtures/ct_erlang.json").
+-define(CROSS_LANGS, ["python", "javascript", "ruby", "rust", "go", "c", "java", "csharp", "dart"]).
 
 %%%-------------------------------------------------------------------
 %%% Setup / teardown
@@ -45,7 +46,7 @@ tests(_) ->
 		pki:init(?JWKS_FILE),
 		Msg = <<"Hello World">>,
 		Sig = pki:sign(Msg),
-		?assert(pki:verify(Msg, Sig))
+		?assert(pki:check(Msg, Sig))
 	 end),
 
 	 %% Verify rejects wrong message
@@ -53,7 +54,7 @@ tests(_) ->
 		pki:init(?JWKS_FILE),
 		Msg = <<"Hello World">>,
 		Sig = pki:sign(Msg),
-		?assertNot(pki:verify(<<"Wrong message">>, Sig))
+		?assertNot(pki:check(<<"Wrong message">>, Sig))
 	 end),
 
 	 %% Encrypt / decrypt round-trip
@@ -78,7 +79,7 @@ tests(_) ->
 		pki:init(?GEN_FILE),
 		Msg = <<"Hello World">>,
 		Sig = pki:sign(Msg),
-		?assert(pki:verify(Msg, Sig)),
+		?assert(pki:check(Msg, Sig)),
 		Enc = pki:encrypt(Msg),
 		?assertEqual(Msg, pki:decrypt(Enc))
 	 end),
@@ -104,7 +105,34 @@ tests(_) ->
 					Rec = json:decode(Bin),
 					Sig = maps:get(<<"signature">>, Rec),
 					Msg = maps:get(<<"message">>, Rec),
-					?assert(pki:verify(Msg, Sig));
+					?assert(pki:check(Msg, Sig));
+				{error, enoent} ->
+					ok
+			end
+		end, ?CROSS_LANGS)
+	 end),
+
+	 %% Write cross-language ciphertext fixture
+	 ?_test(begin
+		pki:init(?JWKS_FILE),
+		Ct = pki:encrypt(<<"Secret message">>),
+		Entry = #{<<"lang">> => <<"erlang">>,
+		          <<"message">> => <<"Secret message">>,
+		          <<"ciphertext">> => Ct},
+		ok = file:write_file(?CT_OUT, json:encode(Entry))
+	 end),
+
+	 %% Decrypt cross-language ciphertexts if present
+	 ?_test(begin
+		pki:init(?JWKS_FILE),
+		lists:foreach(fun(Lang) ->
+			Path = "../fixtures/ct_" ++ Lang ++ ".json",
+			case file:read_file(Path) of
+				{ok, Bin} ->
+					Rec = json:decode(Bin),
+					Ct = maps:get(<<"ciphertext">>, Rec),
+					Msg = maps:get(<<"message">>, Rec),
+					?assertEqual(Msg, pki:decrypt(Ct));
 				{error, enoent} ->
 					ok
 			end

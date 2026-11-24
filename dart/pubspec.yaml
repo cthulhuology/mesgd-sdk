@@ -1,0 +1,13 @@
+name: mesgd
+description: Dart SDK for mesgd PKI, authentication, and WebSocket transport.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  pointycastle: ^4.0.0
+
+dev_dependencies:
+  test: ^1.25.0

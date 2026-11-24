@@ -81,7 +81,7 @@ sub sign {
     return encode_base64($signature, '');
 }
 
-sub verify {
+sub check {
     init() unless $signing_pub;
     my ($message, $signature_b64) = @_;
     my $digest = sha256($message);

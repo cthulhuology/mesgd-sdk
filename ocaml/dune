@@ -1,0 +1,23 @@
+(library
+ (name pki)
+ (modules pki)
+ (libraries
+  mirage-crypto-ec
+  mirage-crypto-pk
+  mirage-crypto-rng.unix
+  digestif
+  yojson
+  base64))
+
+(test
+ (name test_pki)
+ (modules test_pki)
+ (libraries
+  pki
+  alcotest))
+
+(library
+ (name mesgd_auth)
+ (wrapped false)
+ (modules auth)
+ (libraries yojson))

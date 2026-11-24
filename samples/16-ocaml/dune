@@ -1,0 +1,12 @@
+(executable
+ (name    sample)
+ (libraries
+  pki
+  mesgd
+  yojson
+  base64
+  lwt
+  lwt.unix
+  lwt_ssl
+  websocket
+  websocket-lwt-unix))

@@ -1,0 +1,6 @@
+source 'https://rubygems.org'
+
+ruby '>= 3.0'
+
+gem 'websocket-client-simple', '~> 0.7'
+gem 'websocket-driver',        '~> 0.7'

@@ -25,6 +25,7 @@
 #include <openssl/x509.h>
 #include <openssl/core_names.h>
 #include <openssl/param_build.h>
+#include <openssl/rand.h>
 
 #include "cJSON.h"
 
@@ -329,6 +330,8 @@ static int import_rsa_priv(cJSON *jwk) {
 /* forward declarations */
 char *pki_export(void);
 int   pki_import(const char *json);
+char *pki_seal(const char *pub_jwk_json, const char *plain);
+char *pki_open(const char *sealed_json);
 
 int pki_generate(const char *path) {
     EVP_PKEY_free(signing_priv);    signing_priv    = NULL;
@@ -456,7 +459,7 @@ char *pki_sign(const char *message) {
     return result;
 }
 
-int pki_verify(const char *message, const char *sig_json) {
+int pki_check(const char *message, const char *sig_json) {
     if (!signing_pub) return 0;
     cJSON *obj = cJSON_Parse(sig_json);
     if (!obj) return 0;
@@ -538,13 +541,238 @@ void pki_free(void) {
     EVP_PKEY_free(encrypting_pub);  encrypting_pub  = NULL;
 }
 
+static cJSON *jwk_unwrap(cJSON *root, const char *inner) {
+    cJSON *nested = cJSON_GetObjectItemCaseSensitive(root, inner);
+    return (nested && cJSON_IsObject(nested)) ? nested : root;
+}
+
+static EVP_PKEY *rsa_pub_from_jwk(cJSON *jwk) {
+    const char *ns = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(jwk, "n"));
+    const char *es = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(jwk, "e"));
+    if (!ns || !es) return NULL;
+    size_t n_len, e_len;
+    uint8_t *nb = b64url_dec(ns, &n_len);
+    uint8_t *eb = b64url_dec(es, &e_len);
+    BIGNUM *n = BN_bin2bn(nb, (int)n_len, NULL);
+    BIGNUM *e = BN_bin2bn(eb, (int)e_len, NULL);
+    free(nb); free(eb);
+
+    OSSL_PARAM_BLD *bld = OSSL_PARAM_BLD_new();
+    OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n);
+    OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e);
+    OSSL_PARAM *params = OSSL_PARAM_BLD_to_param(bld);
+    OSSL_PARAM_BLD_free(bld);
+    BN_free(n); BN_free(e);
+
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    EVP_PKEY_fromdata_init(ctx);
+    EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
+    EVP_PKEY_CTX_free(ctx);
+    OSSL_PARAM_free(params);
+    return pkey;
+}
+
+static EVP_PKEY *ec_pub_from_jwk(cJSON *jwk) {
+    const char *xs = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(jwk, "x"));
+    const char *ys = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(jwk, "y"));
+    if (!xs || !ys) return NULL;
+    size_t x_len, y_len;
+    uint8_t *xb = b64url_dec(xs, &x_len);
+    uint8_t *yb = b64url_dec(ys, &y_len);
+    uint8_t pub_point[65] = {0};
+    pub_point[0] = 0x04;
+    if (x_len > 32) x_len = 32;
+    if (y_len > 32) y_len = 32;
+    memcpy(pub_point + 1 + (32 - x_len), xb, x_len);
+    memcpy(pub_point + 33 + (32 - y_len), yb, y_len);
+    free(xb); free(yb);
+
+    OSSL_PARAM_BLD *bld = OSSL_PARAM_BLD_new();
+    OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, "P-256", 0);
+    OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, pub_point, 65);
+    OSSL_PARAM *params = OSSL_PARAM_BLD_to_param(bld);
+    OSSL_PARAM_BLD_free(bld);
+
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+    EVP_PKEY_fromdata_init(ctx);
+    EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
+    EVP_PKEY_CTX_free(ctx);
+    OSSL_PARAM_free(params);
+    return pkey;
+}
+
+char *pki_pub_jwk(void) {
+    if (!signing_priv || !encrypting_priv) return NULL;
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddItemToObject(obj, "signing_pub", jwk_ec_pub());
+    cJSON_AddItemToObject(obj, "encrypting_pub", jwk_rsa_pub());
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    return json;
+}
+
+char *pki_encrypt_with(const char *pub_jwk_json, const char *message) {
+    cJSON *root = cJSON_Parse(pub_jwk_json);
+    if (!root) return NULL;
+    EVP_PKEY *key = rsa_pub_from_jwk(jwk_unwrap(root, "encrypting_pub"));
+    cJSON_Delete(root);
+    if (!key) return NULL;
+
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(key, NULL);
+    EVP_PKEY_encrypt_init(ctx);
+    EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING);
+    EVP_PKEY_CTX_set_rsa_oaep_md(ctx, EVP_sha256());
+    EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, EVP_sha256());
+    size_t outlen = 0;
+    EVP_PKEY_encrypt(ctx, NULL, &outlen, (uint8_t *)message, strlen(message));
+    uint8_t *out = malloc(outlen);
+    EVP_PKEY_encrypt(ctx, out, &outlen, (uint8_t *)message, strlen(message));
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(key);
+    char *b64 = b64std_enc(out, outlen);
+    free(out);
+    return b64;
+}
+
+int pki_check_with_pub(const char *pub_jwk_json, const char *message, const char *sig_json) {
+    cJSON *root = cJSON_Parse(pub_jwk_json);
+    if (!root) return 0;
+    EVP_PKEY *key = ec_pub_from_jwk(jwk_unwrap(root, "signing_pub"));
+    cJSON_Delete(root);
+    if (!key) return 0;
+
+    cJSON *obj = cJSON_Parse(sig_json);
+    if (!obj) { EVP_PKEY_free(key); return 0; }
+    const char *rs = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "r"));
+    const char *ss = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "s"));
+    if (!rs || !ss) { cJSON_Delete(obj); EVP_PKEY_free(key); return 0; }
+    size_t r_len, s_len;
+    uint8_t *rb = b64url_dec(rs, &r_len);
+    uint8_t *sb = b64url_dec(ss, &s_len);
+    cJSON_Delete(obj);
+
+    BIGNUM *r = BN_bin2bn(rb, (int)r_len, NULL);
+    BIGNUM *s = BN_bin2bn(sb, (int)s_len, NULL);
+    free(rb); free(sb);
+    ECDSA_SIG *ecdsa = ECDSA_SIG_new();
+    ECDSA_SIG_set0(ecdsa, r, s);
+    uint8_t *sig_der = NULL;
+    int der_len = i2d_ECDSA_SIG(ecdsa, &sig_der);
+    ECDSA_SIG_free(ecdsa);
+
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+    EVP_DigestVerifyInit(mdctx, NULL, EVP_sha256(), NULL, key);
+    EVP_DigestVerifyUpdate(mdctx, message, strlen(message));
+    int result = EVP_DigestVerifyFinal(mdctx, sig_der, (size_t)der_len);
+    EVP_MD_CTX_free(mdctx);
+    OPENSSL_free(sig_der);
+    EVP_PKEY_free(key);
+    return result == 1;
+}
+
+/* Hybrid seal matching the reference wire format {alg,k,iv,ct,tag}: a random
+ * AES-256-GCM key wrapped with RSA-OAEP-SHA256, so payloads exceed OAEP's cap. */
+char *pki_seal(const char *pub_jwk_json, const char *plain) {
+    cJSON *root = cJSON_Parse(pub_jwk_json);
+    if (!root) return NULL;
+    EVP_PKEY *key = rsa_pub_from_jwk(jwk_unwrap(root, "encrypting_pub"));
+    cJSON_Delete(root);
+    if (!key) return NULL;
+
+    uint8_t aeskey[32], iv[12], tag[16];
+    RAND_bytes(aeskey, sizeof aeskey);
+    RAND_bytes(iv, sizeof iv);
+
+    size_t plen = strlen(plain);
+    uint8_t *ct = malloc(plen);
+    int ct_len = 0, fin = 0;
+    EVP_CIPHER_CTX *aes = EVP_CIPHER_CTX_new();
+    EVP_EncryptInit_ex(aes, EVP_aes_256_gcm(), NULL, aeskey, iv);
+    EVP_EncryptUpdate(aes, ct, &ct_len, (const uint8_t *)plain, (int)plen);
+    EVP_EncryptFinal_ex(aes, ct + ct_len, &fin);
+    EVP_CIPHER_CTX_ctrl(aes, EVP_CTRL_GCM_GET_TAG, sizeof tag, tag);
+    EVP_CIPHER_CTX_free(aes);
+
+    EVP_PKEY_CTX *rc = EVP_PKEY_CTX_new(key, NULL);
+    EVP_PKEY_encrypt_init(rc);
+    EVP_PKEY_CTX_set_rsa_padding(rc, RSA_PKCS1_OAEP_PADDING);
+    EVP_PKEY_CTX_set_rsa_oaep_md(rc, EVP_sha256());
+    EVP_PKEY_CTX_set_rsa_mgf1_md(rc, EVP_sha256());
+    size_t wlen = 0;
+    EVP_PKEY_encrypt(rc, NULL, &wlen, aeskey, sizeof aeskey);
+    uint8_t *wrapped = malloc(wlen);
+    EVP_PKEY_encrypt(rc, wrapped, &wlen, aeskey, sizeof aeskey);
+    EVP_PKEY_CTX_free(rc);
+    EVP_PKEY_free(key);
+
+    char *k = b64std_enc(wrapped, wlen);
+    char *ivs = b64std_enc(iv, sizeof iv);
+    char *cts = b64std_enc(ct, (size_t)ct_len);
+    char *tags = b64std_enc(tag, sizeof tag);
+    free(wrapped); free(ct);
+
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "alg", "RSA-OAEP+A256GCM");
+    cJSON_AddStringToObject(obj, "k", k);
+    cJSON_AddStringToObject(obj, "iv", ivs);
+    cJSON_AddStringToObject(obj, "ct", cts);
+    cJSON_AddStringToObject(obj, "tag", tags);
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    free(k); free(ivs); free(cts); free(tags);
+    return json;
+}
+
+char *pki_open(const char *sealed_json) {
+    if (!encrypting_priv) return NULL;
+    cJSON *obj = cJSON_Parse(sealed_json);
+    if (!obj) return NULL;
+    const char *ks = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "k"));
+    const char *ivs = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "iv"));
+    const char *cts = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "ct"));
+    const char *tags = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, "tag"));
+    if (!ks || !ivs || !cts || !tags) { cJSON_Delete(obj); return NULL; }
+    size_t wlen, ivlen, ctlen, taglen;
+    uint8_t *wrapped = b64std_dec(ks, &wlen);
+    uint8_t *iv = b64std_dec(ivs, &ivlen);
+    uint8_t *ct = b64std_dec(cts, &ctlen);
+    uint8_t *tag = b64std_dec(tags, &taglen);
+    cJSON_Delete(obj);
+
+    EVP_PKEY_CTX *rc = EVP_PKEY_CTX_new(encrypting_priv, NULL);
+    EVP_PKEY_decrypt_init(rc);
+    EVP_PKEY_CTX_set_rsa_padding(rc, RSA_PKCS1_OAEP_PADDING);
+    EVP_PKEY_CTX_set_rsa_oaep_md(rc, EVP_sha256());
+    EVP_PKEY_CTX_set_rsa_mgf1_md(rc, EVP_sha256());
+    uint8_t aeskey[512];               /* RSA output buffer; unwrapped key is 32 bytes */
+    size_t aklen = sizeof aeskey;
+    EVP_PKEY_decrypt(rc, aeskey, &aklen, wrapped, wlen);
+    EVP_PKEY_CTX_free(rc);
+
+    uint8_t *pt = malloc(ctlen + 1);
+    int pt_len = 0, fin = 0;
+    EVP_CIPHER_CTX *aes = EVP_CIPHER_CTX_new();
+    EVP_DecryptInit_ex(aes, EVP_aes_256_gcm(), NULL, aeskey, iv);
+    EVP_DecryptUpdate(aes, pt, &pt_len, ct, (int)ctlen);
+    EVP_CIPHER_CTX_ctrl(aes, EVP_CTRL_GCM_SET_TAG, (int)taglen, tag);
+    int ok = EVP_DecryptFinal_ex(aes, pt + pt_len, &fin);
+    EVP_CIPHER_CTX_free(aes);
+    free(wrapped); free(iv); free(ct); free(tag);
+
+    if (ok != 1) { free(pt); return NULL; }
+    pt[pt_len] = '\0';
+    return (char *)pt;
+}
+
 /* ── optional demo main ────────────────────────────────────────────── */
 #ifdef PKI_DEMO
 int main(void) {
     if (pki_init("pki_keys.json") != 0) { fprintf(stderr, "init failed\n"); return 1; }
     char *sig = pki_sign("Hello World");
     printf("sig:    %s\n", sig);
-    printf("verify: %d\n", pki_verify("Hello World", sig));
+    printf("verify: %d\n", pki_check("Hello World", sig));
     free(sig);
     char *ct = pki_encrypt("Secret message");
     printf("enc:    %s\n", ct);

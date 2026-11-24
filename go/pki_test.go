@@ -12,7 +12,7 @@ const JWKS_FILE = "../fixtures/jwks.json"
 const GEN_FILE = "../fixtures/test_go.json"
 const SIG_OUT = "../fixtures/sig_go.json"
 
-var CROSS_LANGS = []string{"erlang", "python", "javascript", "ruby", "rust", "c", "java", "csharp"}
+var CROSS_LANGS = []string{"erlang", "python", "javascript", "ruby", "rust", "c", "java", "csharp", "dart"}
 
 var globalPKI *pki.PKI
 
@@ -30,14 +30,14 @@ func TestSignVerifyRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
-	ok, err := globalPKI.Verify("Hello World", sig)
+	ok, err := globalPKI.Check("Hello World", sig)
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
 	if !ok {
 		t.Fatal("Verify returned false for valid signature")
 	}
-	ok2, err := globalPKI.Verify("Wrong message", sig)
+	ok2, err := globalPKI.Check("Wrong message", sig)
 	if err != nil {
 		t.Fatalf("Verify (wrong msg) failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestGeneratedKeysWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
-	ok, err := p2.Verify("Hello World", sig)
+	ok, err := p2.Check("Hello World", sig)
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestVerifyCrossLangSignatures(t *testing.T) {
 			}
 			message := rec["message"]
 			signature := rec["signature"]
-			ok, err := globalPKI.Verify(message, signature)
+			ok, err := globalPKI.Check(message, signature)
 			if err != nil {
 				t.Fatalf("Verify %s: %v", lang, err)
 			}
@@ -178,5 +178,41 @@ func TestVerifyCrossLangSignatures(t *testing.T) {
 				t.Fatalf("Verify %s signature failed", lang)
 			}
 		})
+	}
+}
+
+func TestWriteCrossLangCiphertext(t *testing.T) {
+	ct, err := globalPKI.Encrypt("Secret message")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{"lang": "go", "message": "Secret message", "ciphertext": ct}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("../fixtures/ct_go.json", data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecryptCrossLangCiphertexts(t *testing.T) {
+	for _, lang := range CROSS_LANGS {
+		path := "../fixtures/ct_" + lang + ".json"
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var rec map[string]string
+		if err := json.Unmarshal(data, &rec); err != nil {
+			t.Fatalf("%s: %v", lang, err)
+		}
+		pt, err := globalPKI.Decrypt(rec["ciphertext"])
+		if err != nil {
+			t.Fatalf("decrypt %s: %v", lang, err)
+		}
+		if pt != rec["message"] {
+			t.Fatalf("decrypt %s: got %q want %q", lang, pt, rec["message"])
+		}
 	}
 }

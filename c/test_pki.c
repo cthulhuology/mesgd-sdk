@@ -58,7 +58,7 @@ void test_sign_verify_roundtrip(void) {
     TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE));
     char *sig = pki_sign("Hello World");
     TEST_ASSERT_NOT_NULL(sig);
-    TEST_ASSERT_EQUAL_INT(1, pki_verify("Hello World", sig));
+    TEST_ASSERT_EQUAL_INT(1, pki_check("Hello World", sig));
     free(sig);
 }
 
@@ -66,7 +66,7 @@ void test_verify_wrong_message_fails(void) {
     TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE));
     char *sig = pki_sign("Hello World");
     TEST_ASSERT_NOT_NULL(sig);
-    TEST_ASSERT_EQUAL_INT(0, pki_verify("Wrong message", sig));
+    TEST_ASSERT_EQUAL_INT(0, pki_check("Wrong message", sig));
     free(sig);
 }
 
@@ -106,7 +106,7 @@ void test_export_import_roundtrip(void) {
 
     char *sig = pki_sign("roundtrip test");
     TEST_ASSERT_NOT_NULL(sig);
-    TEST_ASSERT_EQUAL_INT(1, pki_verify("roundtrip test", sig));
+    TEST_ASSERT_EQUAL_INT(1, pki_check("roundtrip test", sig));
     free(sig);
     remove("/tmp/pki_rtrip.json");
 }
@@ -150,7 +150,7 @@ static void verify_cross_lang(const char *lang) {
     const char *sig = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(rec, "signature"));
     if (!msg || !sig) { cJSON_Delete(rec); TEST_FAIL_MESSAGE("missing fields"); return; }
 
-    int ok = pki_verify(msg, sig);
+    int ok = pki_check(msg, sig);
     cJSON_Delete(rec);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, ok, lang);
 }
@@ -163,6 +163,48 @@ void test_verify_rust(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)
 void test_verify_go(void)         { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("go"); }
 void test_verify_java(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("java"); }
 void test_verify_csharp(void)     { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("csharp"); }
+void test_verify_dart(void)       { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); verify_cross_lang("dart"); }
+
+void test_write_cross_lang_ciphertext(void) {
+    TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE));
+    char *ct = pki_encrypt("Secret message");
+    TEST_ASSERT_NOT_NULL(ct);
+    cJSON *rec = cJSON_CreateObject();
+    cJSON_AddStringToObject(rec, "lang", "c");
+    cJSON_AddStringToObject(rec, "message", "Secret message");
+    cJSON_AddStringToObject(rec, "ciphertext", ct);
+    char *out = cJSON_PrintUnformatted(rec);
+    cJSON_Delete(rec);
+    free(ct);
+    FILE *f = fopen(FIXTURES "/ct_c.json", "w");
+    TEST_ASSERT_NOT_NULL(f);
+    fputs(out, f);
+    fclose(f);
+    free(out);
+}
+
+static void decrypt_cross_lang(const char *lang) {
+    char path[256];
+    snprintf(path, sizeof(path), FIXTURES "/ct_%s.json", lang);
+    char *buf = read_file(path);
+    if (!buf) {
+        TEST_IGNORE_MESSAGE("ciphertext fixture not found");
+        return;
+    }
+    cJSON *rec = cJSON_Parse(buf);
+    free(buf);
+    const char *msg = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(rec, "message"));
+    const char *ct = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(rec, "ciphertext"));
+    char *pt = pki_decrypt(ct);
+    TEST_ASSERT_NOT_NULL(pt);
+    TEST_ASSERT_EQUAL_STRING(msg, pt);
+    free(pt);
+    cJSON_Delete(rec);
+}
+
+void test_decrypt_erlang_ct(void) { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); decrypt_cross_lang("erlang"); }
+void test_decrypt_python_ct(void) { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); decrypt_cross_lang("python"); }
+void test_decrypt_dart_ct(void)   { TEST_ASSERT_EQUAL_INT(0, pki_init(JWKS_FILE)); decrypt_cross_lang("dart"); }
 
 /* ── main ───────────────────────────────────────────────────────────── */
 
@@ -184,6 +226,11 @@ int main(void) {
     RUN_TEST(test_verify_go);
     RUN_TEST(test_verify_java);
     RUN_TEST(test_verify_csharp);
+    RUN_TEST(test_verify_dart);
+    RUN_TEST(test_write_cross_lang_ciphertext);
+    RUN_TEST(test_decrypt_erlang_ct);
+    RUN_TEST(test_decrypt_python_ct);
+    RUN_TEST(test_decrypt_dart_ct);
 
     return UNITY_END();
 }

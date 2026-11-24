@@ -65,8 +65,8 @@ sign keys message = B64.encode $ BS.pack $ BS.unpack $ encodeSignature $ sign (S
   where
     encodeSignature (Signature r s) = Z.encode (r :: Integer) ++ Z.encode (s :: Integer)  -- Assuming Z for bigints
 
-verify :: Keys -> String -> String -> Bool
-verify keys message sigB64 = verify (SHA256) (signingPub keys) (BS.pack $ Hash.digestToHex $ Hash.hash $ BS.pack message) (decodeSignature $ B64.decodeLenient sigB64)
+check :: Keys -> String -> String -> Bool
+check keys message sigB64 = verify (SHA256) (signingPub keys) (BS.pack $ Hash.digestToHex $ Hash.hash $ BS.pack message) (decodeSignature $ B64.decodeLenient sigB64)
   where
     decodeSignature bs = let (r, rest) = Z.decode bs; (s, _) = Z.decode rest in Signature r s  -- Assuming Z for bigints
 
@@ -85,7 +85,7 @@ main = do
   keys <- initPKI
   let sig = sign keys "Hello World"
   putStrLn $ "Signature: " ++ sig
-  putStrLn $ "Verify: " ++ show (verify keys "Hello World" sig)
+  putStrLn $ "Verify: " ++ show (check keys "Hello World" sig)
   let enc = encrypt keys "Secret message"
   putStrLn $ "Encrypted: " ++ enc
   putStrLn $ "Decrypted: " ++ decrypt keys enc
